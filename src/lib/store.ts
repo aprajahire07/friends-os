@@ -1225,36 +1225,31 @@ export const appStore = {
   },
 
   // Snaps (Disappearing 1-Time Photos)
-  async sendSnap(recipient_id: string, image_url: string, caption?: string) {
-    if (!this.currentUser) return;
-    const tempId = `snap-${Date.now()}`;
+  async sendSnap(recipient_id: string, storage_path: string, caption?: string): Promise<SnapMessage | null> {
+    if (!this.currentUser) return null;
+
+    const remoteSnap = await sendSnapToSupabase(this.currentUser.id, recipient_id, storage_path, caption);
+    if (!remoteSnap) {
+      return null;
+    }
 
     const newSnap: SnapMessage = {
-      id: tempId,
-      sender_id: this.currentUser.id,
-      recipient_id,
-      image_url,
-      caption,
-      sent_at: new Date().toISOString(),
-      status: 'sent',
+      ...remoteSnap,
       sender_profile: this.currentUser,
     };
 
-    this.snaps = [newSnap, ...this.snaps];
+    this.snaps = [newSnap, ...this.snaps.filter(s => s.id !== remoteSnap.id)];
     saveState('snaps', this.snaps);
     notifyListeners();
 
-    const recipient = this.profiles.find(p => p.id === recipient_id);
-    if (recipient) {
-      this.addNotification(recipient_id, 'snap', '📸 New Disappearing Snap', `${this.currentUser.full_name} sent you a snap. Tap to view once.`);
-    }
-
-    const remoteSnap = await sendSnapToSupabase(this.currentUser.id, recipient_id, image_url, caption);
-    if (remoteSnap) {
-      this.snaps = this.snaps.map(s => s.id === tempId ? { ...remoteSnap, sender_profile: this.currentUser } : s);
-      saveState('snaps', this.snaps);
-      notifyListeners();
-    }
+    // Add recipient notification
+    this.addNotification(
+      recipient_id, 
+      'snap', 
+      '📸 New Disappearing Snap', 
+      `${this.currentUser.full_name} sent you a snap. Tap to view once.`,
+      remoteSnap.id
+    );
 
     return newSnap;
   },
@@ -1280,9 +1275,10 @@ export const appStore = {
     if (targetSnap && this.currentUser && targetSnap.sender_id !== this.currentUser.id) {
       this.addNotification(
         targetSnap.sender_id,
-        'snap_opened',
+        'snap',
         '📸 Snap Opened',
-        `${this.currentUser.full_name} opened your snap.`
+        `${this.currentUser.full_name} opened your snap.`,
+        snapId
       );
     }
   },

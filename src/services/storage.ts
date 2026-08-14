@@ -133,13 +133,6 @@ export async function uploadFileToStorage(
 
     if (error) {
       console.warn(`Supabase Storage upload warning in ${bucket}:`, error.message);
-      
-      // If error might be bucket not created yet or permission, try public folder
-      if (error.message.includes('bucket') || error.message.includes('not found')) {
-        const fallbackUrl = URL.createObjectURL(file);
-        if (onProgress) onProgress(100);
-        return { storagePath: fallbackUrl };
-      }
       return { storagePath: '', error: error.message || 'Upload failed. Please try again.' };
     }
 
