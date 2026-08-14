@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Users, ChevronDown, LogOut, User, Settings, Sparkles } from 'lucide-react';
 import { appStore, useAppStore } from '../../lib/store';
 import { useToast } from '../ui/Toast';
+import { StatusPicker } from '../friends/StatusPicker';
 
 interface NavbarProps {
   activeTab: string;
@@ -41,6 +42,11 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenO
               {currentUser.college || 'College Friend Group'}
             </p>
           </div>
+        </div>
+
+        {/* Live Status Control in Navbar */}
+        <div className="hidden sm:flex items-center gap-2">
+          <StatusPicker />
         </div>
 
         {/* User Profile & Account Menu */}

@@ -18,12 +18,16 @@ import {
   Check 
 } from 'lucide-react';
 import { appStore, useAppStore } from '../../lib/store';
-import { ChatCategory, ChatMessage } from '../../types';
+import { ChatCategory, ChatMessage, Profile } from '../../types';
 import { MessageItem } from './MessageItem';
 import { useToast } from '../ui/Toast';
 import { uploadFileToStorage, validateUploadFile } from '../../services/storage';
 
-export const GroupChat: React.FC = () => {
+interface GroupChatProps {
+  onOpenProfile?: (profile: Profile) => void;
+}
+
+export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile }) => {
   const { showToast } = useToast();
   const store = useAppStore();
   const currentUser = store.currentUser;
@@ -219,6 +223,7 @@ export const GroupChat: React.FC = () => {
               message={msg}
               currentUser={currentUser}
               onReply={setReplyingTo}
+              onOpenProfile={onOpenProfile}
             />
           ))
         )}

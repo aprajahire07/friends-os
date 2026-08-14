@@ -13,6 +13,7 @@ import { BorrowedTracker } from './components/borrowed/BorrowedTracker';
 import { CollegeClassesTab } from './components/college/CollegeClassesTab';
 import { MeTab } from './components/profile/MeTab';
 import { PaymentQRModal } from './components/expenses/PaymentQRModal';
+import { FriendProfileModal } from './components/friends/FriendProfileModal';
 import { SendSnapModal } from './components/snaps/SendSnapModal';
 import { AddMoneyConversationalModal } from './components/expenses/AddMoneyConversationalModal';
 import { CreatePlanModal } from './components/plans/CreatePlanModal';
@@ -110,6 +111,11 @@ export function AppContent() {
 
   // Preselected friend for 1-on-1 actions
   const [preselectedFriend, setPreselectedFriend] = useState<Profile | null>(null);
+  const [friendProfile, setFriendProfile] = useState<Profile | null>(null);
+
+  const handleOpenFriendProfile = (friend: Profile) => {
+    setFriendProfile(friend);
+  };
 
   const handleOpenPaymentQR = (friend: Profile) => {
     setQrFriend(friend);
@@ -192,7 +198,7 @@ export function AppContent() {
             />
           )}
 
-          {activeTab === 'chat' && <GroupChat />}
+          {activeTab === 'chat' && <GroupChat onOpenProfile={handleOpenFriendProfile} />}
 
           {activeTab === 'expenses' && (
             <ExpenseDashboard
@@ -236,6 +242,16 @@ export function AppContent() {
       />
 
       {/* Global Modals */}
+      <FriendProfileModal
+        friend={friendProfile}
+        onClose={() => setFriendProfile(null)}
+        onOpenPaymentQR={handleOpenPaymentQR}
+        onSendSnapTo={handleSendSnapTo}
+        onSelectTab={setActiveTab}
+        onOpenAddMoneyForFriend={handleOpenAddMoneyForFriend}
+        onOpenBorrowForFriend={handleOpenBorrowForFriend}
+      />
+
       <PaymentQRModal friend={qrFriend} onClose={() => setQrFriend(null)} />
 
       <SendSnapModal

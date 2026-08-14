@@ -49,43 +49,48 @@ export const FriendsList: React.FC<FriendsListProps> = ({
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto pb-24 md:pb-12">
-      {/* Header */}
-      <div>
-        <h2 className="text-xl font-black text-white flex items-center gap-2">
-          <Users className="w-5 h-5 text-indigo-400" />
-          <span>Friends 👥</span>
-        </h2>
-        <p className="text-xs text-slate-400 mt-0.5">
-          Your active friend group. Live statuses and locations update in real-time.
-        </p>
+      {/* Header & Live Status Toolbar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg">
+        <div>
+          <h2 className="text-lg font-black text-white flex items-center gap-2">
+            <Users className="w-5 h-5 text-indigo-400" />
+            <span>Friends 👥</span>
+          </h2>
+          <p className="text-[11px] text-slate-400 mt-0.5">
+            Realtime statuses, live campus locations & payment QR codes.
+          </p>
+        </div>
+
+        {/* Live Status Control */}
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-xs text-slate-400 font-medium">Your status:</span>
+          <StatusPicker />
+        </div>
       </div>
 
-      {/* Quick Status Update */}
-      <StatusPicker />
+      {/* Compact Campus Location Bar */}
+      <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-3 text-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow">
+        <div className="flex items-center gap-2 text-xs font-semibold text-slate-300">
+          <MapPin className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span className="text-slate-400 text-[11px]">Campus Location:</span>
+          <span className="text-white truncate max-w-[200px]">
+            {appStore.currentUser.current_location || 'Not set'}
+          </span>
+        </div>
 
-      {/* College Location Place Bar */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 text-slate-100 shadow-lg">
-        <h3 className="text-xs font-bold text-white mb-1.5 flex items-center gap-2">
-          <MapPin className="w-4 h-4 text-emerald-400" />
-          <span>Your Current Campus Location</span>
-        </h3>
-        <p className="text-[11px] text-slate-400 mb-2">
-          Let your friends know where you are sitting or hanging out on campus right now.
-        </p>
-
-        <form onSubmit={handleUpdateLocation} className="flex gap-2">
+        <form onSubmit={handleUpdateLocation} className="flex gap-2 w-full sm:w-auto">
           <input
             type="text"
-            placeholder="e.g. Block A Canteen, Library 2nd Floor, Lab 4..."
+            placeholder="e.g. Canteen, Library 2nd Fl..."
             value={locationInput}
             onChange={e => setLocationInput(e.target.value)}
-            className="flex-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
+            className="flex-1 sm:w-56 px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500"
           />
           <button
             type="submit"
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition-colors shadow-md active:scale-95"
+            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition-colors shadow active:scale-95 shrink-0"
           >
-            Update
+            Save
           </button>
         </form>
       </div>

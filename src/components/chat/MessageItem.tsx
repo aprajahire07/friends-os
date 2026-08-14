@@ -8,9 +8,10 @@ interface MessageItemProps {
   message: ChatMessage;
   currentUser: Profile;
   onReply: (message: ChatMessage) => void;
+  onOpenProfile?: (profile: Profile) => void;
 }
 
-export const MessageItem: React.FC<MessageItemProps> = ({ message, currentUser, onReply }) => {
+export const MessageItem: React.FC<MessageItemProps> = ({ message, currentUser, onReply, onOpenProfile }) => {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showFullImage, setShowFullImage] = useState(false);
   const isSelf = message.sender_id === currentUser.id;
@@ -45,13 +46,20 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, currentUser, 
       <img
         src={sender?.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80'}
         alt=""
-        className="w-8 h-8 rounded-full object-cover shrink-0 border border-slate-700 mt-1"
+        onClick={() => sender && onOpenProfile && onOpenProfile(sender)}
+        className={`w-8 h-8 rounded-full object-cover shrink-0 border border-slate-700 mt-1 ${onOpenProfile ? 'cursor-pointer hover:ring-2 hover:ring-indigo-500' : ''}`}
+        title={sender?.full_name ? `View ${sender.full_name}'s profile` : ''}
       />
 
       <div className={`max-w-[75%] md:max-w-[65%] flex flex-col ${isSelf ? 'items-end' : 'items-start'}`}>
         {/* Sender Name & Timestamp */}
         <div className="flex items-center gap-2 mb-1 px-1">
-          <span className="text-[11px] font-bold text-slate-300">{sender?.full_name || 'Member'}</span>
+          <span
+            onClick={() => sender && onOpenProfile && onOpenProfile(sender)}
+            className={`text-[11px] font-bold text-slate-300 ${onOpenProfile ? 'cursor-pointer hover:text-indigo-400 hover:underline' : ''}`}
+          >
+            {sender?.full_name || 'Member'}
+          </span>
           <span className="text-[9px] text-slate-500 font-mono">{formattedTime}</span>
         </div>
 

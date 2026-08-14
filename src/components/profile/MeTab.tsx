@@ -104,17 +104,11 @@ export const MeTab: React.FC<MeTabProps> = ({
           </div>
         </div>
 
-        {/* Current Live Status Banner */}
+        {/* Current Live Status Banner & Compact Control */}
         <div className="mt-4 p-3 rounded-2xl bg-slate-950/80 border border-slate-800 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-bold text-emerald-400">
-              {user.status_preset || '🟢 Available'}
-            </span>
-            {user.status_text && user.status_text !== user.status_preset && (
-              <span className="text-xs text-slate-300 italic">
-                "{user.status_text}"
-              </span>
-            )}
+            <span className="text-xs text-slate-400 font-medium">Live Status:</span>
+            <StatusPicker />
           </div>
           {user.current_location && (
             <span className="text-xs text-slate-400 flex items-center gap-1">
@@ -141,9 +135,6 @@ export const MeTab: React.FC<MeTabProps> = ({
           </button>
         </div>
       </div>
-
-      {/* Quick Status Setting */}
-      <StatusPicker />
 
       {/* BIRTHDAYS THIS MONTH SECTION */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 text-slate-100 shadow-xl space-y-3">

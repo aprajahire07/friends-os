@@ -1,6 +1,7 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { appStore } from '../lib/store';
 import { Profile } from '../types';
+import { mapProfileFromSupabase } from './profiles';
 
 export function subscribeToAllRealtimeTables(
   onNotificationReceived?: (notif: any) => void
@@ -29,8 +30,9 @@ export function subscribeToAllRealtimeTables(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'profiles' },
       (payload) => {
-        if (payload.new) {
-          appStore.handleRemoteProfileUpdate(payload.new as Profile);
+        if (payload.new && (payload.new as any).id) {
+          const mapped = mapProfileFromSupabase(payload.new);
+          appStore.handleRemoteProfileUpdate(mapped);
         } else {
           appStore.syncProfiles();
         }
