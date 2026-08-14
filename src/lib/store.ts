@@ -22,7 +22,7 @@ import {
 import { resolveCollegeId, GHRCE_COLLEGE_ID, SKILLTECH_COLLEGE_ID } from './timetables';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { fetchProfilesFromSupabase, updateProfileInSupabase } from '../services/profiles';
-import { fetchMessagesFromSupabase, sendMessageToSupabase } from '../services/chat';
+import { fetchMessagesFromSupabase, sendMessageToSupabase, fetchMessageReadsFromSupabase, markCategoryAsReadInSupabase } from '../services/chat';
 import { fetchExpensesFromSupabase, addExpenseToSupabase, fetchLoansFromSupabase, addLoanToSupabase, settleLoanInSupabase, settleExpenseShareInSupabase } from '../services/expenses';
 import { fetchPlansFromSupabase, addPlanToSupabase, updatePlanRsvpInSupabase, votePollOptionInSupabase, addPollToPlanInSupabase } from '../services/plans';
 import { fetchMemoriesFromSupabase, addMemoryToSupabase } from '../services/memories';
@@ -91,6 +91,7 @@ export const appStore = {
   snaps: loadInitialState<SnapMessage[]>('snaps', []),
   streaks: [] as { friend_id: string; streak_count: number }[],
   notifications: loadInitialState<AppNotification[]>('notifications', []),
+  messageReads: loadInitialState<Record<string, string>>('messageReads', {}),
   
   // Memories Lock & Security (Admin controlled)
   memoriesLocked: loadInitialState<boolean>('memoriesLocked', false),
@@ -120,7 +121,8 @@ export const appStore = {
         remoteSnaps,
         remoteNotifications,
         remoteSettings,
-        remoteGroupData
+        remoteGroupData,
+        remoteMessageReads
       ] = await Promise.all([
         fetchProfilesFromSupabase(),
         fetchMessagesFromSupabase(),
@@ -134,8 +136,14 @@ export const appStore = {
         fetchSnapsFromSupabase(this.currentUser.id),
         fetchNotificationsFromSupabase(this.currentUser.id),
         fetchMemoryLockSettingsFromSupabase(),
-        fetchUserGroup(this.currentUser.id)
+        fetchUserGroup(this.currentUser.id),
+        fetchMessageReadsFromSupabase(this.currentUser.id)
       ]);
+
+      if (remoteMessageReads) {
+        this.messageReads = remoteMessageReads;
+        saveState('messageReads', this.messageReads);
+      }
 
       if (remoteGroupData) {
         this.group = remoteGroupData.group;
@@ -207,6 +215,20 @@ export const appStore = {
       }
     } catch (err) {
       console.warn('Error syncing messages:', err);
+    }
+  },
+
+  async syncMessageReads() {
+    if (!isSupabaseConfigured || !this.currentUser) return;
+    try {
+      const remoteReads = await fetchMessageReadsFromSupabase(this.currentUser.id);
+      if (remoteReads) {
+        this.messageReads = remoteReads;
+        saveState('messageReads', this.messageReads);
+        notifyListeners();
+      }
+    } catch (err) {
+      console.warn('Error syncing message reads:', err);
     }
   },
 
@@ -717,6 +739,42 @@ export const appStore = {
     notifyListeners();
   },
 
+  async markCategoryAsRead(category: ChatCategory) {
+    if (!this.currentUser) return;
+    const now = new Date().toISOString();
+    this.messageReads = {
+      ...this.messageReads,
+      [category]: now
+    };
+    saveState('messageReads', this.messageReads);
+    notifyListeners();
+
+    await markCategoryAsReadInSupabase(this.currentUser.id, category);
+  },
+
+  getUnreadMessageCount(category?: ChatCategory): number {
+    if (!this.currentUser) return 0;
+    const myId = this.currentUser.id;
+
+    if (category) {
+      const lastRead = this.messageReads[category] || '1970-01-01T00:00:00.000Z';
+      return this.messages.filter(
+        m => m.category === category && m.sender_id !== myId && m.created_at > lastRead
+      ).length;
+    }
+
+    // Sum across all categories
+    const categories: ChatCategory[] = ['general', 'money', 'college', 'plans', 'memories', 'random'];
+    let total = 0;
+    for (const cat of categories) {
+      const lastRead = this.messageReads[cat] || '1970-01-01T00:00:00.000Z';
+      total += this.messages.filter(
+        m => m.category === cat && m.sender_id !== myId && m.created_at > lastRead
+      ).length;
+    }
+    return total;
+  },
+
   // Expenses & Loans Actions
   async addGroupExpense(title: string, total_amount: number, category: string, participant_ids: string[]) {
     if (!this.currentUser) return;
@@ -1130,16 +1188,24 @@ export const appStore = {
   },
 
   // Borrowed Tracker
-  async addBorrowedItem(owner_id: string, borrower_id: string, item_name: string, expected_return_date: string) {
+  async addBorrowedItem(
+    owner_id: string,
+    borrower_id: string,
+    item_name: string,
+    expected_return_date: string,
+    description?: string
+  ) {
     const tempId = `bor-${Date.now()}`;
     const owner = this.profiles.find(p => p.id === owner_id);
     const borrower = this.profiles.find(p => p.id === borrower_id);
+    const groupId = this.group?.id;
 
     const newItem: BorrowedItem = {
       id: tempId,
       owner_id,
       borrower_id,
       item_name,
+      description: description || item_name,
       borrowed_date: new Date().toISOString().split('T')[0],
       expected_return_date,
       status: 'borrowed',
@@ -1167,7 +1233,9 @@ export const appStore = {
       owner_id,
       borrower_id,
       item_name,
-      expected_return_date
+      description,
+      expected_return_date,
+      group_id: groupId
     });
 
     if (remoteItem) {

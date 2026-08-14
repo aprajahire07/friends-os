@@ -11,7 +11,7 @@ interface CreatePlanModalProps {
 export const CreatePlanModal: React.FC<CreatePlanModalProps> = ({ isOpen, onClose }) => {
   const { showToast } = useToast();
   const [where, setWhere] = useState('');
-  const [whenDate, setWhenDate] = useState('2026-08-15');
+  const [whenDate, setWhenDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [activity, setActivity] = useState('🎬 Movie');
 
   if (!isOpen) return null;

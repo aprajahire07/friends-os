@@ -28,6 +28,13 @@ export function subscribeToAllRealtimeTables(
     )
     .on(
       'postgres_changes',
+      { event: '*', schema: 'public', table: 'message_reads' },
+      () => {
+        appStore.syncMessageReads();
+      }
+    )
+    .on(
+      'postgres_changes',
       { event: '*', schema: 'public', table: 'profiles' },
       (payload) => {
         if (payload.new && (payload.new as any).id) {

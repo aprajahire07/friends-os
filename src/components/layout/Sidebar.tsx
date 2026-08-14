@@ -37,11 +37,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     s => s.recipient_id === currentUser.id && s.status !== 'opened' && s.status !== 'expired'
   ).length : 0;
 
+  const unreadChatCount = currentUser ? appStore.getUnreadMessageCount() : 0;
+
   // Desktop Navigation Items
   const desktopNavItems = [
     { id: 'home', label: 'Home', icon: Home, badge: null },
     { id: 'friends', label: 'Friends', icon: Users, badge: null },
-    { id: 'chat', label: 'Chat', icon: MessageSquare, badge: null },
+    { id: 'chat', label: 'Chat', icon: MessageSquare, badge: unreadChatCount > 0 ? (unreadChatCount > 99 ? '99+' : unreadChatCount) : null },
     { id: 'expenses', label: 'Money', icon: Wallet, badge: pendingLoansCount > 0 ? pendingLoansCount : null },
     { id: 'plans', label: 'Plans', icon: CalendarDays, badge: null },
     { id: 'snaps', label: 'Snaps', icon: Camera, badge: unopenedSnapsCount > 0 ? unopenedSnapsCount : null },
@@ -137,7 +139,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
             activeTab === 'chat' ? 'text-indigo-400' : 'text-slate-400 hover:text-slate-200'
           }`}
         >
-          <MessageSquare className="w-5 h-5" />
+          <div className="relative">
+            <MessageSquare className="w-5 h-5" />
+            {unreadChatCount > 0 && (
+              <span className="absolute -top-1.5 -right-2 px-1.5 py-0.2 rounded-full text-[9px] font-black bg-indigo-500 text-white animate-pulse">
+                {unreadChatCount > 99 ? '99+' : unreadChatCount}
+              </span>
+            )}
+          </div>
           <span>Chat</span>
         </button>
 

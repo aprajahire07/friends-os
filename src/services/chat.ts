@@ -58,14 +58,20 @@ export async function sendMessageToSupabase(msg: Partial<ChatMessage>): Promise<
   if (!isSupabaseConfigured || !supabase || !msg.sender_id) return null;
 
   try {
-    const payload = {
-      group_id: isValidUUID(msg.group_id) ? msg.group_id : null,
+    const payload: any = {
       sender_id: msg.sender_id,
       category: msg.category || 'general',
       content: msg.content || '',
       media_url: msg.media_url || null,
-      reply_to_id: isValidUUID(msg.reply_to_id) ? msg.reply_to_id : null
     };
+
+    if (isValidUUID(msg.group_id)) {
+      payload.group_id = msg.group_id;
+    }
+
+    if (isValidUUID(msg.reply_to_id)) {
+      payload.reply_to_id = msg.reply_to_id;
+    }
 
     const { data, error } = await supabase
       .from('messages')
@@ -96,6 +102,59 @@ export async function sendMessageToSupabase(msg: Partial<ChatMessage>): Promise<
   }
 }
 
+export async function fetchMessageReadsFromSupabase(userId: string): Promise<Record<string, string> | null> {
+  if (!isSupabaseConfigured || !supabase || !userId) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('message_reads')
+      .select('category, last_read_at')
+      .eq('user_id', userId);
+
+    if (error) {
+      console.warn('Could not fetch message_reads:', error.message);
+      return null;
+    }
+
+    const map: Record<string, string> = {};
+    (data || []).forEach(row => {
+      if (row.category) {
+        map[row.category] = row.last_read_at;
+      }
+    });
+
+    return map;
+  } catch (err) {
+    console.warn('Failed to fetch message reads:', err);
+    return null;
+  }
+}
+
+export async function markCategoryAsReadInSupabase(userId: string, category: ChatCategory): Promise<boolean> {
+  if (!isSupabaseConfigured || !supabase || !userId) return false;
+
+  try {
+    const now = new Date().toISOString();
+    const { error } = await supabase
+      .from('message_reads')
+      .upsert({
+        user_id: userId,
+        category: category,
+        last_read_at: now
+      }, { onConflict: 'user_id,category' });
+
+    if (error) {
+      console.warn('Error updating message read status in Supabase:', error.message);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.warn('Failed to mark category as read in Supabase:', err);
+    return false;
+  }
+}
+
 export function subscribeToRealtimeMessages(onNewMessage: (msg: any) => void) {
   if (!isSupabaseConfigured || !supabase) return () => {};
 
@@ -114,3 +173,4 @@ export function subscribeToRealtimeMessages(onNewMessage: (msg: any) => void) {
     supabase.removeChannel(channel);
   };
 }
+

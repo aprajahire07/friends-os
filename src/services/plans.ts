@@ -1,6 +1,11 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { GroupPlan, PlanPoll } from '../types';
 
+function isValidUUID(str?: string | null): boolean {
+  if (!str) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+}
+
 export async function fetchPlansFromSupabase(): Promise<GroupPlan[] | null> {
   if (!isSupabaseConfigured || !supabase) return null;
 
@@ -32,13 +37,13 @@ export async function fetchPlansFromSupabase(): Promise<GroupPlan[] | null> {
       creator_id: p.creator_id,
       title: p.title,
       date: p.plan_date || p.date,
-      time: p.start_time || p.time,
+      time: p.start_time || p.time || '18:00',
       location: p.location,
       description: p.description,
-      status: p.status || 'upcoming',
+      status: (p.status || 'upcoming') as 'upcoming' | 'completed' | 'cancelled',
       participants: (p.plan_participants || []).map((part: any) => ({
         user_id: part.user_id,
-        status: part.status as 'joined' | 'declined' | 'maybe'
+        status: (part.status === 'going' ? 'joined' : part.status) as 'joined' | 'declined' | 'maybe'
       })),
       polls: (p.polls || []).map((poll: any) => ({
         id: poll.id,
@@ -60,22 +65,35 @@ export async function fetchPlansFromSupabase(): Promise<GroupPlan[] | null> {
   }
 }
 
-export async function addPlanToSupabase(plan: Partial<GroupPlan>): Promise<GroupPlan | null> {
-  if (!isSupabaseConfigured || !supabase) return null;
+export async function addPlanToSupabase(plan: {
+  creator_id: string;
+  title: string;
+  date: string;
+  time?: string;
+  location: string;
+  description?: string;
+  group_id?: string;
+}): Promise<GroupPlan | null> {
+  if (!isSupabaseConfigured || !supabase || !plan.creator_id) return null;
 
   try {
+    const payload: any = {
+      creator_id: plan.creator_id,
+      title: plan.title,
+      description: plan.description || '',
+      location: plan.location,
+      plan_date: plan.date,
+      start_time: plan.time || '18:00',
+      status: 'active'
+    };
+
+    if (plan.group_id && isValidUUID(plan.group_id)) {
+      payload.group_id = plan.group_id;
+    }
+
     const { data, error } = await supabase
       .from('plans')
-      .insert([{
-        group_id: plan.group_id || 'main-group',
-        creator_id: plan.creator_id,
-        title: plan.title,
-        description: plan.description,
-        location: plan.location,
-        plan_date: plan.date,
-        start_time: plan.time,
-        status: 'active'
-      }])
+      .insert([payload])
       .select()
       .single();
 
@@ -101,9 +119,9 @@ export async function addPlanToSupabase(plan: Partial<GroupPlan>): Promise<Group
       location: data.location,
       description: data.description,
       status: 'upcoming',
-      participants: [{ user_id: plan.creator_id!, status: 'joined' }],
-      created_at: data.created_at,
-      creator_profile: plan.creator_profile
+      participants: [{ user_id: plan.creator_id, status: 'joined' }],
+      polls: [],
+      created_at: data.created_at
     };
   } catch (err) {
     console.error('Failed to add plan:', err);
@@ -112,7 +130,7 @@ export async function addPlanToSupabase(plan: Partial<GroupPlan>): Promise<Group
 }
 
 export async function updatePlanRsvpInSupabase(planId: string, userId: string, status: 'joined' | 'declined' | 'maybe'): Promise<boolean> {
-  if (!isSupabaseConfigured || !supabase) return false;
+  if (!isSupabaseConfigured || !supabase || !planId || !userId) return false;
 
   try {
     const dbStatus = status === 'joined' ? 'going' : status;
@@ -121,11 +139,12 @@ export async function updatePlanRsvpInSupabase(planId: string, userId: string, s
       .upsert({
         plan_id: planId,
         user_id: userId,
-        status: dbStatus
+        status: dbStatus,
+        updated_at: new Date().toISOString()
       }, { onConflict: 'plan_id,user_id' });
 
     if (error) {
-      console.error('Error updating RSVP:', error.message);
+      console.error('Error updating RSVP in Supabase:', error.message);
       return false;
     }
     return true;
@@ -135,23 +154,38 @@ export async function updatePlanRsvpInSupabase(planId: string, userId: string, s
   }
 }
 
-export async function votePollOptionInSupabase(pollId: string, optionId: string, userId: string): Promise<boolean> {
-  if (!isSupabaseConfigured || !supabase) return false;
+export async function votePollOptionInSupabase(pollId: string, optionId: string, userId: string, remove = false): Promise<boolean> {
+  if (!isSupabaseConfigured || !supabase || !pollId || !userId) return false;
 
   try {
-    const { error } = await supabase
-      .from('poll_votes')
-      .upsert({
-        poll_id: pollId,
-        option_id: optionId,
-        user_id: userId
-      }, { onConflict: 'poll_id,user_id' });
+    if (remove) {
+      const { error } = await supabase
+        .from('poll_votes')
+        .delete()
+        .eq('poll_id', pollId)
+        .eq('option_id', optionId)
+        .eq('user_id', userId);
 
-    if (error) {
-      console.error('Error voting in poll:', error.message);
-      return false;
+      if (error) {
+        console.error('Error removing vote:', error.message);
+        return false;
+      }
+      return true;
+    } else {
+      const { error } = await supabase
+        .from('poll_votes')
+        .upsert({
+          poll_id: pollId,
+          option_id: optionId,
+          user_id: userId
+        }, { onConflict: 'poll_id,user_id' });
+
+      if (error) {
+        console.error('Error voting in poll:', error.message);
+        return false;
+      }
+      return true;
     }
-    return true;
   } catch (err) {
     console.error('Failed to vote in poll:', err);
     return false;
@@ -159,7 +193,7 @@ export async function votePollOptionInSupabase(pollId: string, optionId: string,
 }
 
 export async function addPollToPlanInSupabase(planId: string, question: string, options: string[], allow_multiple = false): Promise<boolean> {
-  if (!isSupabaseConfigured || !supabase) return false;
+  if (!isSupabaseConfigured || !supabase || !planId) return false;
 
   try {
     const { data: poll, error: pollErr } = await supabase
@@ -197,4 +231,5 @@ export async function addPollToPlanInSupabase(planId: string, question: string, 
     return false;
   }
 }
+
 

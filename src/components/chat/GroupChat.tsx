@@ -63,6 +63,11 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile }) => {
          (!searchQuery || m.content.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
+  // Automatically mark the active category as read
+  useEffect(() => {
+    appStore.markCategoryAsRead(activeCategory);
+  }, [activeCategory, categoryMessages.length]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [categoryMessages.length, activeCategory]);
@@ -165,6 +170,7 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile }) => {
           {categories.map(cat => {
             const Icon = cat.icon;
             const isActive = activeCategory === cat.id;
+            const unreadCount = !isActive ? store.getUnreadMessageCount(cat.id) : 0;
 
             return (
               <button
@@ -173,7 +179,7 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile }) => {
                   setActiveCategory(cat.id);
                   setSearchQuery('');
                 }}
-                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 whitespace-nowrap active:scale-95 ${
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shrink-0 whitespace-nowrap active:scale-95 relative ${
                   isActive
                     ? 'bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-600 text-white shadow-lg shadow-indigo-600/30 ring-1 ring-indigo-400/40'
                     : 'bg-slate-900 text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-800/80'
@@ -181,6 +187,11 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile }) => {
               >
                 <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-white' : cat.color}`} />
                 <span>#{cat.label}</span>
+                {unreadCount > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-indigo-500 text-white animate-pulse">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
               </button>
             );
           })}
