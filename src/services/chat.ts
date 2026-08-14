@@ -1,10 +1,16 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { ChatMessage, ChatCategory } from '../types';
 
+function isValidUUID(str?: string | null): boolean {
+  if (!str) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+}
+
 export async function fetchMessagesFromSupabase(category?: ChatCategory): Promise<ChatMessage[] | null> {
-  if (!isSupabaseConfigured) return null;
+  if (!isSupabaseConfigured || !supabase) return null;
 
   try {
+    let data: any[] | null = null;
     let query = supabase
       .from('messages')
       .select('*, sender:sender_id(*)');
@@ -13,14 +19,23 @@ export async function fetchMessagesFromSupabase(category?: ChatCategory): Promis
       query = query.eq('category', category);
     }
 
-    const { data, error } = await query.order('created_at', { ascending: true });
+    const { data: primaryData, error: primaryErr } = await query.order('created_at', { ascending: true });
 
-    if (error) {
-      console.warn('Supabase fetchMessages error:', error.message);
-      return null;
+    if (primaryErr || !primaryData) {
+      let fallbackQuery = supabase.from('messages').select('*');
+      if (category) {
+        fallbackQuery = fallbackQuery.eq('category', category);
+      }
+      const { data: fallbackData, error: fallbackErr } = await fallbackQuery.order('created_at', { ascending: true });
+      if (fallbackErr) {
+        console.warn('Supabase fetchMessages error:', fallbackErr.message);
+        return null;
+      }
+      data = fallbackData;
+    } else {
+      data = primaryData;
     }
 
-    // Map rows to ChatMessage format
     return (data || []).map((row: any) => ({
       id: row.id,
       group_id: row.group_id,
@@ -40,22 +55,22 @@ export async function fetchMessagesFromSupabase(category?: ChatCategory): Promis
 }
 
 export async function sendMessageToSupabase(msg: Partial<ChatMessage>): Promise<ChatMessage | null> {
-  if (!isSupabaseConfigured) return null;
+  if (!isSupabaseConfigured || !supabase || !msg.sender_id) return null;
 
   try {
     const payload = {
-      group_id: msg.group_id,
+      group_id: isValidUUID(msg.group_id) ? msg.group_id : null,
       sender_id: msg.sender_id,
       category: msg.category || 'general',
-      content: msg.content,
-      media_url: msg.media_url,
-      reply_to_id: msg.reply_to_id
+      content: msg.content || '',
+      media_url: msg.media_url || null,
+      reply_to_id: isValidUUID(msg.reply_to_id) ? msg.reply_to_id : null
     };
 
     const { data, error } = await supabase
       .from('messages')
       .insert([payload])
-      .select('*, sender:sender_id(*)')
+      .select()
       .single();
 
     if (error) {
@@ -73,7 +88,7 @@ export async function sendMessageToSupabase(msg: Partial<ChatMessage>): Promise<
       reply_to_id: data.reply_to_id,
       reactions: data.reactions || {},
       created_at: data.created_at,
-      sender: data.sender
+      sender: msg.sender
     };
   } catch (err) {
     console.error('Failed to send message:', err);
@@ -82,7 +97,7 @@ export async function sendMessageToSupabase(msg: Partial<ChatMessage>): Promise<
 }
 
 export function subscribeToRealtimeMessages(onNewMessage: (msg: any) => void) {
-  if (!isSupabaseConfigured) return () => {};
+  if (!isSupabaseConfigured || !supabase) return () => {};
 
   const channel = supabase
     .channel('public:messages')

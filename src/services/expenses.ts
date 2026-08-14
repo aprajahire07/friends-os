@@ -2,17 +2,28 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { GroupExpense, PersonalLoan } from '../types';
 
 export async function fetchExpensesFromSupabase(): Promise<GroupExpense[] | null> {
-  if (!isSupabaseConfigured) return null;
+  if (!isSupabaseConfigured || !supabase) return null;
 
   try {
-    const { data, error } = await supabase
+    let data: any[] | null = null;
+    const { data: primaryData, error: primaryErr } = await supabase
       .from('expenses')
       .select('*, expense_participants(*), payer_profile:paid_by(*)')
       .order('created_at', { ascending: false });
 
-    if (error) {
-      console.warn('Supabase fetchExpenses error:', error.message);
-      return null;
+    if (primaryErr || !primaryData) {
+      const { data: fallbackData, error: fallbackErr } = await supabase
+        .from('expenses')
+        .select('*, expense_participants(*)')
+        .order('created_at', { ascending: false });
+
+      if (fallbackErr) {
+        console.warn('Supabase fetchExpenses error:', fallbackErr.message);
+        return null;
+      }
+      data = fallbackData;
+    } else {
+      data = primaryData;
     }
 
     return (data || []).map((e: any) => ({
@@ -37,19 +48,19 @@ export async function fetchExpensesFromSupabase(): Promise<GroupExpense[] | null
 }
 
 export async function addExpenseToSupabase(expense: Partial<GroupExpense>): Promise<GroupExpense | null> {
-  if (!isSupabaseConfigured) return null;
+  if (!isSupabaseConfigured || !supabase) return null;
 
   try {
     const { data: expData, error: expError } = await supabase
       .from('expenses')
       .insert([{
-        group_id: expense.group_id,
+        group_id: expense.group_id || 'main-group',
         paid_by: expense.paid_by,
         title: expense.title,
         amount: expense.total_amount,
         category: expense.category || 'other'
       }])
-      .select('*, payer_profile:paid_by(*)')
+      .select()
       .single();
 
     if (expError) {
@@ -77,7 +88,7 @@ export async function addExpenseToSupabase(expense: Partial<GroupExpense>): Prom
       category: expData.category,
       participants: expense.participants || [],
       created_at: expData.created_at,
-      payer_profile: expData.payer_profile
+      payer_profile: expense.payer_profile
     };
   } catch (err) {
     console.error('Failed to add expense:', err);
@@ -86,17 +97,28 @@ export async function addExpenseToSupabase(expense: Partial<GroupExpense>): Prom
 }
 
 export async function fetchLoansFromSupabase(): Promise<PersonalLoan[] | null> {
-  if (!isSupabaseConfigured) return null;
+  if (!isSupabaseConfigured || !supabase) return null;
 
   try {
-    const { data, error } = await supabase
+    let data: any[] | null = null;
+    const { data: primaryData, error: primaryErr } = await supabase
       .from('loans')
       .select('*, lender_profile:lender_id(*), borrower_profile:borrower_id(*)')
       .order('created_at', { ascending: false });
 
-    if (error) {
-      console.warn('Supabase fetchLoans error:', error.message);
-      return null;
+    if (primaryErr || !primaryData) {
+      const { data: fallbackData, error: fallbackErr } = await supabase
+        .from('loans')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (fallbackErr) {
+        console.warn('Supabase fetchLoans error:', fallbackErr.message);
+        return null;
+      }
+      data = fallbackData;
+    } else {
+      data = primaryData;
     }
 
     return (data || []).map((l: any) => ({
@@ -119,21 +141,20 @@ export async function fetchLoansFromSupabase(): Promise<PersonalLoan[] | null> {
 }
 
 export async function addLoanToSupabase(loan: Partial<PersonalLoan>): Promise<PersonalLoan | null> {
-  if (!isSupabaseConfigured) return null;
+  if (!isSupabaseConfigured || !supabase) return null;
 
   try {
     const { data, error } = await supabase
       .from('loans')
       .insert([{
-        group_id: loan.lender_profile?.id ? undefined : undefined,
         lender_id: loan.lender_id,
         borrower_id: loan.borrower_id,
         amount: loan.amount,
         reason: loan.reason,
-        category: loan.category,
+        category: loan.category || 'other',
         status: 'pending'
       }])
-      .select('*, lender_profile:lender_id(*), borrower_profile:borrower_id(*)')
+      .select()
       .single();
 
     if (error) {
@@ -151,8 +172,8 @@ export async function addLoanToSupabase(loan: Partial<PersonalLoan>): Promise<Pe
       status: data.status,
       paid_at: data.paid_at,
       created_at: data.created_at,
-      lender_profile: data.lender_profile,
-      borrower_profile: data.borrower_profile
+      lender_profile: loan.lender_profile,
+      borrower_profile: loan.borrower_profile
     };
   } catch (err) {
     console.error('Failed to add loan:', err);
@@ -161,7 +182,7 @@ export async function addLoanToSupabase(loan: Partial<PersonalLoan>): Promise<Pe
 }
 
 export async function settleLoanInSupabase(loanId: string): Promise<boolean> {
-  if (!isSupabaseConfigured) return false;
+  if (!isSupabaseConfigured || !supabase) return false;
 
   try {
     const { error } = await supabase
@@ -184,7 +205,7 @@ export async function settleLoanInSupabase(loanId: string): Promise<boolean> {
 }
 
 export async function settleExpenseShareInSupabase(expenseId: string, userId: string): Promise<boolean> {
-  if (!isSupabaseConfigured) return false;
+  if (!isSupabaseConfigured || !supabase) return false;
 
   try {
     const { error } = await supabase

@@ -1,8 +1,13 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { AppNotification } from '../types';
 
+function isValidUUID(str?: string): boolean {
+  if (!str) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+}
+
 export async function fetchNotificationsFromSupabase(userId: string): Promise<AppNotification[] | null> {
-  if (!isSupabaseConfigured) return null;
+  if (!isSupabaseConfigured || !supabase) return null;
 
   try {
     const { data, error } = await supabase
@@ -33,7 +38,7 @@ export async function fetchNotificationsFromSupabase(userId: string): Promise<Ap
 }
 
 export async function addNotificationToSupabase(notif: Partial<AppNotification>): Promise<boolean> {
-  if (!isSupabaseConfigured) return false;
+  if (!isSupabaseConfigured || !supabase || !notif.user_id) return false;
 
   try {
     const { error } = await supabase
@@ -41,9 +46,9 @@ export async function addNotificationToSupabase(notif: Partial<AppNotification>)
       .insert([{
         user_id: notif.user_id,
         type: notif.type || 'college',
-        title: notif.title,
-        message: notif.message,
-        related_id: notif.link,
+        title: notif.title || 'Notification',
+        message: notif.message || '',
+        related_id: isValidUUID(notif.link) ? notif.link : null,
         is_read: false
       }]);
 
@@ -59,7 +64,7 @@ export async function addNotificationToSupabase(notif: Partial<AppNotification>)
 }
 
 export async function markNotificationsReadInSupabase(userId: string): Promise<boolean> {
-  if (!isSupabaseConfigured) return false;
+  if (!isSupabaseConfigured || !supabase || !userId) return false;
 
   try {
     const { error } = await supabase

@@ -497,6 +497,7 @@ ALTER TABLE public.attendance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.class_reports ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.snaps ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
 
 -- POLICIES
 DROP POLICY IF EXISTS "Profiles select" ON public.profiles;
@@ -515,11 +516,17 @@ DROP POLICY IF EXISTS "Group members select" ON public.group_members;
 CREATE POLICY "Group members select" ON public.group_members FOR SELECT USING (auth.role() = 'authenticated');
 DROP POLICY IF EXISTS "Group members insert" ON public.group_members;
 CREATE POLICY "Group members insert" ON public.group_members FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Group members update" ON public.group_members;
+CREATE POLICY "Group members update" ON public.group_members FOR UPDATE USING (auth.role() = 'authenticated');
 
 DROP POLICY IF EXISTS "Friendships select" ON public.friendships;
-CREATE POLICY "Friendships select" ON public.friendships FOR SELECT USING (auth.uid() = user_id OR auth.uid() = friend_id);
+CREATE POLICY "Friendships select" ON public.friendships FOR SELECT USING (auth.uid() = user_id OR auth.uid() = friend_id OR auth.role() = 'authenticated');
 DROP POLICY IF EXISTS "Friendships insert" ON public.friendships;
 CREATE POLICY "Friendships insert" ON public.friendships FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Friendships update" ON public.friendships;
+CREATE POLICY "Friendships update" ON public.friendships FOR UPDATE USING (auth.uid() = user_id OR auth.uid() = friend_id);
+DROP POLICY IF EXISTS "Friendships delete" ON public.friendships;
+CREATE POLICY "Friendships delete" ON public.friendships FOR DELETE USING (auth.uid() = user_id OR auth.uid() = friend_id);
 
 DROP POLICY IF EXISTS "Channels select" ON public.chat_channels;
 CREATE POLICY "Channels select" ON public.chat_channels FOR SELECT USING (auth.role() = 'authenticated');
@@ -527,6 +534,8 @@ DROP POLICY IF EXISTS "Messages select" ON public.messages;
 CREATE POLICY "Messages select" ON public.messages FOR SELECT USING (auth.role() = 'authenticated');
 DROP POLICY IF EXISTS "Messages insert" ON public.messages;
 CREATE POLICY "Messages insert" ON public.messages FOR INSERT WITH CHECK (auth.uid() = sender_id);
+DROP POLICY IF EXISTS "Messages update" ON public.messages;
+CREATE POLICY "Messages update" ON public.messages FOR UPDATE USING (auth.uid() = sender_id);
 DROP POLICY IF EXISTS "Messages delete" ON public.messages;
 CREATE POLICY "Messages delete" ON public.messages FOR DELETE USING (auth.uid() = sender_id);
 
@@ -541,6 +550,8 @@ DROP POLICY IF EXISTS "Expenses select" ON public.expenses;
 CREATE POLICY "Expenses select" ON public.expenses FOR SELECT USING (auth.role() = 'authenticated');
 DROP POLICY IF EXISTS "Expenses insert" ON public.expenses;
 CREATE POLICY "Expenses insert" ON public.expenses FOR INSERT WITH CHECK (auth.uid() = paid_by);
+DROP POLICY IF EXISTS "Expenses update" ON public.expenses;
+CREATE POLICY "Expenses update" ON public.expenses FOR UPDATE USING (auth.role() = 'authenticated');
 
 DROP POLICY IF EXISTS "Expense participants select" ON public.expense_participants;
 CREATE POLICY "Expense participants select" ON public.expense_participants FOR SELECT USING (auth.role() = 'authenticated');
@@ -550,11 +561,13 @@ DROP POLICY IF EXISTS "Expense participants update" ON public.expense_participan
 CREATE POLICY "Expense participants update" ON public.expense_participants FOR UPDATE USING (auth.role() = 'authenticated');
 
 DROP POLICY IF EXISTS "Loans select" ON public.loans;
-CREATE POLICY "Loans select" ON public.loans FOR SELECT USING (auth.uid() = lender_id OR auth.uid() = borrower_id);
+CREATE POLICY "Loans select" ON public.loans FOR SELECT USING (auth.uid() = lender_id OR auth.uid() = borrower_id OR auth.role() = 'authenticated');
 DROP POLICY IF EXISTS "Loans insert" ON public.loans;
 CREATE POLICY "Loans insert" ON public.loans FOR INSERT WITH CHECK (auth.uid() = lender_id OR auth.uid() = borrower_id);
 DROP POLICY IF EXISTS "Loans update" ON public.loans;
 CREATE POLICY "Loans update" ON public.loans FOR UPDATE USING (auth.uid() = lender_id OR auth.uid() = borrower_id);
+DROP POLICY IF EXISTS "Loans delete" ON public.loans;
+CREATE POLICY "Loans delete" ON public.loans FOR DELETE USING (auth.uid() = lender_id OR auth.uid() = borrower_id);
 
 DROP POLICY IF EXISTS "Payment QR select" ON public.payment_qr;
 CREATE POLICY "Payment QR select" ON public.payment_qr FOR SELECT USING (auth.role() = 'authenticated');
@@ -565,6 +578,9 @@ DROP POLICY IF EXISTS "Plans select" ON public.plans;
 CREATE POLICY "Plans select" ON public.plans FOR SELECT USING (auth.role() = 'authenticated');
 DROP POLICY IF EXISTS "Plans insert" ON public.plans;
 CREATE POLICY "Plans insert" ON public.plans FOR INSERT WITH CHECK (auth.uid() = creator_id);
+DROP POLICY IF EXISTS "Plans update" ON public.plans;
+CREATE POLICY "Plans update" ON public.plans FOR UPDATE USING (auth.role() = 'authenticated');
+
 DROP POLICY IF EXISTS "Plan participants select" ON public.plan_participants;
 CREATE POLICY "Plan participants select" ON public.plan_participants FOR SELECT USING (auth.role() = 'authenticated');
 DROP POLICY IF EXISTS "Plan participants insert/update" ON public.plan_participants;
@@ -578,6 +594,8 @@ DROP POLICY IF EXISTS "Poll votes select" ON public.poll_votes;
 CREATE POLICY "Poll votes select" ON public.poll_votes FOR SELECT USING (auth.role() = 'authenticated');
 DROP POLICY IF EXISTS "Poll votes insert" ON public.poll_votes;
 CREATE POLICY "Poll votes insert" ON public.poll_votes FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Poll votes update" ON public.poll_votes;
+CREATE POLICY "Poll votes update" ON public.poll_votes FOR UPDATE USING (auth.uid() = user_id);
 
 DROP POLICY IF EXISTS "Memories select" ON public.memories;
 CREATE POLICY "Memories select" ON public.memories FOR SELECT USING (auth.role() = 'authenticated');
@@ -589,7 +607,7 @@ DROP POLICY IF EXISTS "Memory media insert" ON public.memory_media;
 CREATE POLICY "Memory media insert" ON public.memory_media FOR INSERT WITH CHECK (auth.role() = 'authenticated');
 
 DROP POLICY IF EXISTS "Borrowed select" ON public.borrowed_items;
-CREATE POLICY "Borrowed select" ON public.borrowed_items FOR SELECT USING (auth.uid() = owner_id OR auth.uid() = borrower_id);
+CREATE POLICY "Borrowed select" ON public.borrowed_items FOR SELECT USING (auth.uid() = owner_id OR auth.uid() = borrower_id OR auth.role() = 'authenticated');
 DROP POLICY IF EXISTS "Borrowed insert" ON public.borrowed_items;
 CREATE POLICY "Borrowed insert" ON public.borrowed_items FOR INSERT WITH CHECK (auth.uid() = owner_id OR auth.uid() = borrower_id);
 DROP POLICY IF EXISTS "Borrowed update" ON public.borrowed_items;
@@ -622,10 +640,15 @@ CREATE POLICY "Class reports update" ON public.class_reports FOR UPDATE USING (a
 DROP POLICY IF EXISTS "Snaps access" ON public.snaps;
 CREATE POLICY "Snaps access" ON public.snaps FOR ALL USING (auth.uid() = sender_id OR auth.uid() = receiver_id);
 
-DROP POLICY IF EXISTS "Notifications access" ON public.notifications;
-CREATE POLICY "Notifications access" ON public.notifications FOR ALL USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Notifications select" ON public.notifications;
+CREATE POLICY "Notifications select" ON public.notifications FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Notifications insert" ON public.notifications;
+CREATE POLICY "Notifications insert" ON public.notifications FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Notifications update" ON public.notifications;
+CREATE POLICY "Notifications update" ON public.notifications FOR UPDATE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Notifications delete" ON public.notifications;
+CREATE POLICY "Notifications delete" ON public.notifications FOR DELETE USING (auth.uid() = user_id);
 
-ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "App settings read" ON public.app_settings;
 CREATE POLICY "App settings read" ON public.app_settings FOR SELECT USING (true);
 DROP POLICY IF EXISTS "App settings write" ON public.app_settings;
@@ -636,8 +659,64 @@ INSERT INTO public.app_settings (key, value)
 VALUES ('memories_lock', '{"locked": false, "passcode_hash": "4a7d1ed414474e4033ac29ccb8653d9b"}'::jsonb)
 ON CONFLICT (key) DO NOTHING;
 
--- Enable Realtime for App Settings
-ALTER PUBLICATION supabase_realtime ADD TABLE public.app_settings;
+-- ENABLE REPLICA IDENTITY FULL FOR COMPLETE REALTIME PAYLOADS
+ALTER TABLE public.profiles REPLICA IDENTITY FULL;
+ALTER TABLE public.messages REPLICA IDENTITY FULL;
+ALTER TABLE public.message_reactions REPLICA IDENTITY FULL;
+ALTER TABLE public.loans REPLICA IDENTITY FULL;
+ALTER TABLE public.expenses REPLICA IDENTITY FULL;
+ALTER TABLE public.expense_participants REPLICA IDENTITY FULL;
+ALTER TABLE public.plans REPLICA IDENTITY FULL;
+ALTER TABLE public.plan_participants REPLICA IDENTITY FULL;
+ALTER TABLE public.polls REPLICA IDENTITY FULL;
+ALTER TABLE public.poll_votes REPLICA IDENTITY FULL;
+ALTER TABLE public.memories REPLICA IDENTITY FULL;
+ALTER TABLE public.memory_media REPLICA IDENTITY FULL;
+ALTER TABLE public.borrowed_items REPLICA IDENTITY FULL;
+ALTER TABLE public.attendance REPLICA IDENTITY FULL;
+ALTER TABLE public.class_reports REPLICA IDENTITY FULL;
+ALTER TABLE public.snaps REPLICA IDENTITY FULL;
+ALTER TABLE public.notifications REPLICA IDENTITY FULL;
+ALTER TABLE public.friendships REPLICA IDENTITY FULL;
+ALTER TABLE public.app_settings REPLICA IDENTITY FULL;
+
+-- ENABLE REALTIME FOR ALL FRIEND OS TABLES
+DO $$
+BEGIN
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE 
+      public.profiles,
+      public.friend_groups,
+      public.group_members,
+      public.friendships,
+      public.chat_channels,
+      public.messages,
+      public.message_reactions,
+      public.expenses,
+      public.expense_participants,
+      public.loans,
+      public.payment_qr,
+      public.plans,
+      public.plan_participants,
+      public.polls,
+      public.poll_options,
+      public.poll_votes,
+      public.memories,
+      public.memory_media,
+      public.borrowed_items,
+      public.important_dates,
+      public.colleges,
+      public.timetable_entries,
+      public.attendance,
+      public.class_reports,
+      public.snaps,
+      public.notifications,
+      public.app_settings;
+  EXCEPTION
+    WHEN duplicate_object THEN NULL;
+    WHEN others THEN NULL;
+  END;
+END $$;
 
 -- STORAGE BUCKETS SETUP
 INSERT INTO storage.buckets (id, name, public) VALUES 

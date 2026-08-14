@@ -2,17 +2,28 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { BorrowedItem } from '../types';
 
 export async function fetchBorrowedItemsFromSupabase(): Promise<BorrowedItem[] | null> {
-  if (!isSupabaseConfigured) return null;
+  if (!isSupabaseConfigured || !supabase) return null;
 
   try {
-    const { data, error } = await supabase
+    let data: any[] | null = null;
+    const { data: primaryData, error: primaryErr } = await supabase
       .from('borrowed_items')
       .select('*, owner_profile:owner_id(*), borrower_profile:borrower_id(*)')
       .order('created_at', { ascending: false });
 
-    if (error) {
-      console.warn('Supabase fetchBorrowedItems error:', error.message);
-      return null;
+    if (primaryErr || !primaryData) {
+      const { data: fallbackData, error: fallbackErr } = await supabase
+        .from('borrowed_items')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (fallbackErr) {
+        console.warn('Supabase fetchBorrowedItems error:', fallbackErr.message);
+        return null;
+      }
+      data = fallbackData;
+    } else {
+      data = primaryData;
     }
 
     return (data || []).map((b: any) => ({
@@ -35,7 +46,7 @@ export async function fetchBorrowedItemsFromSupabase(): Promise<BorrowedItem[] |
 }
 
 export async function addBorrowedItemToSupabase(item: Partial<BorrowedItem>): Promise<BorrowedItem | null> {
-  if (!isSupabaseConfigured) return null;
+  if (!isSupabaseConfigured || !supabase) return null;
 
   try {
     const { data, error } = await supabase
@@ -49,7 +60,7 @@ export async function addBorrowedItemToSupabase(item: Partial<BorrowedItem>): Pr
         due_date: item.expected_return_date,
         status: 'borrowed'
       }])
-      .select('*, owner_profile:owner_id(*), borrower_profile:borrower_id(*)')
+      .select()
       .single();
 
     if (error) {
@@ -67,8 +78,8 @@ export async function addBorrowedItemToSupabase(item: Partial<BorrowedItem>): Pr
       returned_at: data.returned_date,
       status: data.status,
       created_at: data.created_at,
-      owner_profile: data.owner_profile,
-      borrower_profile: data.borrower_profile
+      owner_profile: item.owner_profile,
+      borrower_profile: item.borrower_profile
     };
   } catch (err) {
     console.error('Failed to add borrowed item:', err);
@@ -77,7 +88,7 @@ export async function addBorrowedItemToSupabase(item: Partial<BorrowedItem>): Pr
 }
 
 export async function markItemReturnedInSupabase(itemId: string): Promise<boolean> {
-  if (!isSupabaseConfigured) return false;
+  if (!isSupabaseConfigured || !supabase) return false;
 
   try {
     const { error } = await supabase

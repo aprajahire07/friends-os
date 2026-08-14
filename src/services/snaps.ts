@@ -2,18 +2,30 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { SnapMessage } from '../types';
 
 export async function fetchSnapsFromSupabase(userId: string): Promise<SnapMessage[] | null> {
-  if (!isSupabaseConfigured) return null;
+  if (!isSupabaseConfigured || !supabase) return null;
 
   try {
-    const { data, error } = await supabase
+    let data: any[] | null = null;
+    const { data: primaryData, error: primaryErr } = await supabase
       .from('snaps')
       .select('*, sender_profile:sender_id(*)')
       .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
       .order('created_at', { ascending: false });
 
-    if (error) {
-      console.warn('Supabase fetchSnaps error:', error.message);
-      return null;
+    if (primaryErr || !primaryData) {
+      const { data: fallbackData, error: fallbackErr } = await supabase
+        .from('snaps')
+        .select('*')
+        .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
+        .order('created_at', { ascending: false });
+
+      if (fallbackErr) {
+        console.warn('Supabase fetchSnaps error:', fallbackErr.message);
+        return null;
+      }
+      data = fallbackData;
+    } else {
+      data = primaryData;
     }
 
     return (data || []).map((s: any) => ({
@@ -36,7 +48,7 @@ export async function fetchSnapsFromSupabase(userId: string): Promise<SnapMessag
 }
 
 export async function sendSnapToSupabase(senderId: string, recipientId: string, imageUrl: string, caption?: string): Promise<SnapMessage | null> {
-  if (!isSupabaseConfigured) return null;
+  if (!isSupabaseConfigured || !supabase) return null;
 
   try {
     const { data, error } = await supabase
@@ -48,7 +60,7 @@ export async function sendSnapToSupabase(senderId: string, recipientId: string, 
         caption: caption,
         status: 'sent'
       }])
-      .select('*, sender_profile:sender_id(*)')
+      .select()
       .single();
 
     if (error) {
@@ -64,7 +76,7 @@ export async function sendSnapToSupabase(senderId: string, recipientId: string, 
       caption: data.caption,
       sent_at: data.created_at,
       status: data.status,
-      sender_profile: data.sender_profile
+      sender_profile: null
     };
   } catch (err) {
     console.error('Failed to send snap:', err);
@@ -73,7 +85,7 @@ export async function sendSnapToSupabase(senderId: string, recipientId: string, 
 }
 
 export async function openSnapInSupabase(snapId: string): Promise<boolean> {
-  if (!isSupabaseConfigured) return false;
+  if (!isSupabaseConfigured || !supabase) return false;
 
   try {
     const { error } = await supabase
@@ -96,7 +108,7 @@ export async function openSnapInSupabase(snapId: string): Promise<boolean> {
 }
 
 export async function destroySnapInSupabase(snapId: string): Promise<boolean> {
-  if (!isSupabaseConfigured) return false;
+  if (!isSupabaseConfigured || !supabase) return false;
 
   try {
     const { error } = await supabase

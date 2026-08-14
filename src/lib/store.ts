@@ -641,14 +641,15 @@ export const appStore = {
   },
 
   // Chat Actions
-  addMessage(category: ChatCategory, content: string, media_url?: string, reply_to_id?: string) {
+  async addMessage(category: ChatCategory, content: string, media_url?: string, reply_to_id?: string) {
     if (!this.currentUser) return;
     const replyMsg = reply_to_id ? this.messages.find(m => m.id === reply_to_id) : undefined;
     const senderProfile = this.currentUser;
     const groupId = this.group?.id || 'main-group';
+    const tempId = `msg-${Date.now()}`;
 
     const newMsg: ChatMessage = {
-      id: `msg-${Date.now()}`,
+      id: tempId,
       group_id: groupId,
       sender_id: this.currentUser.id,
       category,
@@ -666,8 +667,9 @@ export const appStore = {
 
     this.messages = [...this.messages, newMsg];
     saveState('messages', this.messages);
+    notifyListeners();
 
-    sendMessageToSupabase({
+    const remoteMsg = await sendMessageToSupabase({
       group_id: groupId,
       sender_id: this.currentUser.id,
       category,
@@ -676,7 +678,12 @@ export const appStore = {
       reply_to_id
     });
 
-    notifyListeners();
+    if (remoteMsg) {
+      this.messages = this.messages.map(m => m.id === tempId ? { ...remoteMsg, sender: senderProfile } : m);
+      saveState('messages', this.messages);
+      notifyListeners();
+    }
+
     return newMsg;
   },
 
@@ -711,12 +718,14 @@ export const appStore = {
   },
 
   // Expenses & Loans Actions
-  addGroupExpense(title: string, total_amount: number, category: string, participant_ids: string[]) {
+  async addGroupExpense(title: string, total_amount: number, category: string, participant_ids: string[]) {
     if (!this.currentUser) return;
     const share = Number((total_amount / (participant_ids.length || 1)).toFixed(2));
     const groupId = this.group?.id || 'main-group';
+    const tempId = `exp-${Date.now()}`;
+
     const newExpense: GroupExpense = {
-      id: `exp-${Date.now()}`,
+      id: tempId,
       group_id: groupId,
       paid_by: this.currentUser.id,
       title,
@@ -733,8 +742,24 @@ export const appStore = {
 
     this.expenses = [newExpense, ...this.expenses];
     saveState('expenses', this.expenses);
+    notifyListeners();
 
-    addExpenseToSupabase({
+    // Auto post to chat
+    this.addMessage('money', `💰 Added expense "${title}" (Total: ₹${total_amount}). Shares: ₹${share} each.`);
+
+    // Send notifications to other participants
+    participant_ids.forEach(uid => {
+      if (uid !== this.currentUser?.id) {
+        this.addNotification(
+          uid,
+          'expense',
+          '💰 New Shared Expense',
+          `${this.currentUser?.full_name} added "${title}". Your share is ₹${share}.`
+        );
+      }
+    });
+
+    const remoteExp = await addExpenseToSupabase({
       group_id: groupId,
       paid_by: this.currentUser.id,
       title,
@@ -747,15 +772,20 @@ export const appStore = {
       }))
     });
 
-    // Add chat notification automatically in #money
-    this.addMessage('money', `💰 Added expense "${title}" (Total: ₹${total_amount}). Shares: ₹${share} each.`);
-    notifyListeners();
+    if (remoteExp) {
+      this.expenses = this.expenses.map(e => e.id === tempId ? { ...remoteExp, payer_profile: this.currentUser } : e);
+      saveState('expenses', this.expenses);
+      notifyListeners();
+    }
   },
 
-  addPersonalLoan(borrower_id: string, amount: number, reason: string, category: PersonalLoan['category']) {
+  async addPersonalLoan(borrower_id: string, amount: number, reason: string, category: PersonalLoan['category']) {
     if (!this.currentUser) return;
+    const tempId = `loan-${Date.now()}`;
+    const borrower = this.profiles.find(p => p.id === borrower_id);
+
     const newLoan: PersonalLoan = {
-      id: `loan-${Date.now()}`,
+      id: tempId,
       lender_id: this.currentUser.id,
       borrower_id,
       amount,
@@ -764,13 +794,22 @@ export const appStore = {
       status: 'pending',
       created_at: new Date().toISOString(),
       lender_profile: this.currentUser,
-      borrower_profile: this.profiles.find(p => p.id === borrower_id),
+      borrower_profile: borrower,
     };
 
     this.loans = [newLoan, ...this.loans];
     saveState('loans', this.loans);
+    notifyListeners();
 
-    addLoanToSupabase({
+    // Send notification to borrower
+    this.addNotification(
+      borrower_id,
+      'expense',
+      '🤝 New Loan Added',
+      `${this.currentUser.full_name} recorded a loan of ₹${amount} for "${reason}".`
+    );
+
+    const remoteLoan = await addLoanToSupabase({
       lender_id: this.currentUser.id,
       borrower_id,
       amount,
@@ -778,10 +817,15 @@ export const appStore = {
       category
     });
 
-    notifyListeners();
+    if (remoteLoan) {
+      this.loans = this.loans.map(l => l.id === tempId ? { ...remoteLoan, lender_profile: this.currentUser, borrower_profile: borrower } : l);
+      saveState('loans', this.loans);
+      notifyListeners();
+    }
   },
 
-  markLoanAsPaid(loanId: string) {
+  async markLoanAsPaid(loanId: string) {
+    const targetLoan = this.loans.find(l => l.id === loanId);
     this.loans = this.loans.map(loan => {
       if (loan.id === loanId) {
         return {
@@ -794,11 +838,24 @@ export const appStore = {
     });
 
     saveState('loans', this.loans);
-    settleLoanInSupabase(loanId);
     notifyListeners();
+
+    await settleLoanInSupabase(loanId);
+
+    // Cross-user notification
+    if (targetLoan && this.currentUser) {
+      const isBorrower = this.currentUser.id === targetLoan.borrower_id;
+      const recipientId = isBorrower ? targetLoan.lender_id : targetLoan.borrower_id;
+      const message = isBorrower
+        ? `${this.currentUser.full_name} marked loan of ₹${targetLoan.amount} (${targetLoan.reason}) as paid.`
+        : `${this.currentUser.full_name} confirmed receipt of ₹${targetLoan.amount} payment.`;
+
+      this.addNotification(recipientId, 'payment', '✅ Loan Settled', message);
+    }
   },
 
-  settleExpenseShare(expenseId: string, userId: string) {
+  async settleExpenseShare(expenseId: string, userId: string) {
+    const targetExpense = this.expenses.find(e => e.id === expenseId);
     this.expenses = this.expenses.map(exp => {
       if (exp.id !== expenseId) return exp;
       return {
@@ -808,16 +865,28 @@ export const appStore = {
     });
 
     saveState('expenses', this.expenses);
-    settleExpenseShareInSupabase(expenseId, userId);
     notifyListeners();
+
+    await settleExpenseShareInSupabase(expenseId, userId);
+
+    if (targetExpense && this.currentUser && targetExpense.paid_by !== userId) {
+      this.addNotification(
+        targetExpense.paid_by,
+        'payment',
+        '✅ Expense Share Settled',
+        `${this.currentUser.full_name} settled their share for "${targetExpense.title}".`
+      );
+    }
   },
 
   // Plans & Polls
-  createPlan(title: string, date: string, time: string, location: string, description?: string) {
+  async createPlan(title: string, date: string, time: string, location: string, description?: string) {
     if (!this.currentUser) return;
     const groupId = this.group?.id || 'main-group';
+    const tempId = `plan-${Date.now()}`;
+
     const newPlan: GroupPlan = {
-      id: `plan-${Date.now()}`,
+      id: tempId,
       group_id: groupId,
       creator_id: this.currentUser.id,
       title,
@@ -833,8 +902,24 @@ export const appStore = {
 
     this.plans = [newPlan, ...this.plans];
     saveState('plans', this.plans);
+    notifyListeners();
 
-    addPlanToSupabase({
+    // Auto post to #plans chat
+    this.addMessage('plans', `📅 New Group Plan: "${title}" on ${date} at ${time} (${location})!`);
+
+    // Notify all other friends
+    this.profiles.forEach(p => {
+      if (p.id !== this.currentUser?.id) {
+        this.addNotification(
+          p.id,
+          'plan',
+          '📅 New Group Plan',
+          `${this.currentUser?.full_name} created plan "${title}" on ${date} at ${time}.`
+        );
+      }
+    });
+
+    const remotePlan = await addPlanToSupabase({
       group_id: groupId,
       creator_id: this.currentUser.id,
       title,
@@ -844,13 +929,17 @@ export const appStore = {
       description
     });
 
-    // Auto post to #plans chat
-    this.addMessage('plans', `📅 New Group Plan: "${title}" on ${date} at ${time} (${location})!`);
-    notifyListeners();
+    if (remotePlan) {
+      this.plans = this.plans.map(p => p.id === tempId ? { ...remotePlan, creator_profile: this.currentUser } : p);
+      saveState('plans', this.plans);
+      notifyListeners();
+    }
   },
 
-  updatePlanStatus(planId: string, status: 'joined' | 'declined' | 'maybe') {
+  async updatePlanStatus(planId: string, status: 'joined' | 'declined' | 'maybe') {
     if (!this.currentUser) return;
+    const targetPlan = this.plans.find(p => p.id === planId);
+
     this.plans = this.plans.map(p => {
       if (p.id !== planId) return p;
       const existing = p.participants.filter(part => part.user_id !== this.currentUser.id);
@@ -861,11 +950,21 @@ export const appStore = {
     });
 
     saveState('plans', this.plans);
-    updatePlanRsvpInSupabase(planId, this.currentUser.id, status);
     notifyListeners();
+
+    await updatePlanRsvpInSupabase(planId, this.currentUser.id, status);
+
+    if (targetPlan && targetPlan.creator_id !== this.currentUser.id && status === 'joined') {
+      this.addNotification(
+        targetPlan.creator_id,
+        'plan',
+        '🎉 Friend Joined Plan',
+        `${this.currentUser.full_name} RSVP'd joined for "${targetPlan.title}".`
+      );
+    }
   },
 
-  addPollToPlan(planId: string, question: string, optionTexts: string[], allow_multiple = false) {
+  async addPollToPlan(planId: string, question: string, optionTexts: string[], allow_multiple = false) {
     const pollId = `poll-${Date.now()}`;
     const newPoll: PlanPoll = {
       id: pollId,
@@ -884,11 +983,13 @@ export const appStore = {
     });
 
     saveState('plans', this.plans);
-    addPollToPlanInSupabase(planId, question, optionTexts, allow_multiple);
     notifyListeners();
+
+    await addPollToPlanInSupabase(planId, question, optionTexts, allow_multiple);
+    this.syncPlans();
   },
 
-  votePollOption(planId: string, pollId: string, optionId: string) {
+  async votePollOption(planId: string, pollId: string, optionId: string) {
     if (!this.currentUser) return;
     const userId = this.currentUser.id;
     this.plans = this.plans.map(p => {
@@ -920,16 +1021,19 @@ export const appStore = {
     });
 
     saveState('plans', this.plans);
-    votePollOptionInSupabase(pollId, optionId, userId);
     notifyListeners();
+
+    await votePollOptionInSupabase(pollId, optionId, userId);
   },
 
   // Memories
-  addMemory(title: string, caption: string, media_urls: string[], date: string, location?: string, tagged_user_ids: string[] = []) {
+  async addMemory(title: string, caption: string, media_urls: string[], date: string, location?: string, tagged_user_ids: string[] = []) {
     if (!this.currentUser) return;
     const groupId = this.group?.id || 'main-group';
+    const tempId = `mem-${Date.now()}`;
+
     const newMem: Memory = {
-      id: `mem-${Date.now()}`,
+      id: tempId,
       group_id: groupId,
       creator_id: this.currentUser.id,
       title,
@@ -944,8 +1048,23 @@ export const appStore = {
 
     this.memories = [newMem, ...this.memories];
     saveState('memories', this.memories);
+    notifyListeners();
+    
+    this.addMessage('memories', `📸 Shared new group memory: "${title}" (${date})!`);
 
-    addMemoryToSupabase({
+    // Notify tagged users
+    tagged_user_ids.forEach(uid => {
+      if (uid !== this.currentUser?.id) {
+        this.addNotification(
+          uid,
+          'message',
+          '🏷️ Tagged in Memory',
+          `${this.currentUser?.full_name} tagged you in a memory: "${title}".`
+        );
+      }
+    });
+
+    const remoteMem = await addMemoryToSupabase({
       group_id: groupId,
       creator_id: this.currentUser.id,
       title,
@@ -955,9 +1074,12 @@ export const appStore = {
       location,
       tagged_user_ids
     });
-    
-    this.addMessage('memories', `📸 Shared new group memory: "${title}" (${date})!`);
-    notifyListeners();
+
+    if (remoteMem) {
+      this.memories = this.memories.map(m => m.id === tempId ? { ...remoteMem, creator_profile: this.currentUser } : m);
+      saveState('memories', this.memories);
+      notifyListeners();
+    }
   },
 
   async toggleMemoriesLock(isLocked: boolean): Promise<boolean> {
@@ -1008,9 +1130,13 @@ export const appStore = {
   },
 
   // Borrowed Tracker
-  addBorrowedItem(owner_id: string, borrower_id: string, item_name: string, expected_return_date: string) {
+  async addBorrowedItem(owner_id: string, borrower_id: string, item_name: string, expected_return_date: string) {
+    const tempId = `bor-${Date.now()}`;
+    const owner = this.profiles.find(p => p.id === owner_id);
+    const borrower = this.profiles.find(p => p.id === borrower_id);
+
     const newItem: BorrowedItem = {
-      id: `bor-${Date.now()}`,
+      id: tempId,
       owner_id,
       borrower_id,
       item_name,
@@ -1018,24 +1144,41 @@ export const appStore = {
       expected_return_date,
       status: 'borrowed',
       created_at: new Date().toISOString(),
-      owner_profile: this.profiles.find(p => p.id === owner_id),
-      borrower_profile: this.profiles.find(p => p.id === borrower_id),
+      owner_profile: owner,
+      borrower_profile: borrower,
     };
 
     this.borrowed = [newItem, ...this.borrowed];
     saveState('borrowed', this.borrowed);
+    notifyListeners();
 
-    addBorrowedItemToSupabase({
+    // Cross-user notification
+    if (this.currentUser) {
+      const isBorrower = this.currentUser.id === borrower_id;
+      const otherUserId = isBorrower ? owner_id : borrower_id;
+      const msg = isBorrower
+        ? `${this.currentUser.full_name} borrowed "${item_name}" from you.`
+        : `${this.currentUser.full_name} lent you "${item_name}".`;
+
+      this.addNotification(otherUserId, 'borrowed', '📦 Borrowed Item Recorded', msg);
+    }
+
+    const remoteItem = await addBorrowedItemToSupabase({
       owner_id,
       borrower_id,
       item_name,
       expected_return_date
     });
 
-    notifyListeners();
+    if (remoteItem) {
+      this.borrowed = this.borrowed.map(b => b.id === tempId ? { ...remoteItem, owner_profile: owner, borrower_profile: borrower } : b);
+      saveState('borrowed', this.borrowed);
+      notifyListeners();
+    }
   },
 
-  markItemReturned(itemId: string) {
+  async markItemReturned(itemId: string) {
+    const targetItem = this.borrowed.find(b => b.id === itemId);
     this.borrowed = this.borrowed.map(item => {
       if (item.id === itemId) {
         return {
@@ -1048,8 +1191,17 @@ export const appStore = {
     });
 
     saveState('borrowed', this.borrowed);
-    markItemReturnedInSupabase(itemId);
     notifyListeners();
+
+    await markItemReturnedInSupabase(itemId);
+
+    if (targetItem && this.currentUser) {
+      const isBorrower = this.currentUser.id === targetItem.borrower_id;
+      const otherUserId = isBorrower ? targetItem.owner_id : targetItem.borrower_id;
+      const msg = `${this.currentUser.full_name} marked "${targetItem.item_name}" as returned.`;
+
+      this.addNotification(otherUserId, 'borrowed', '📦 Item Returned', msg);
+    }
   },
 
   // Important Dates & Birthdays
@@ -1073,10 +1225,12 @@ export const appStore = {
   },
 
   // Snaps (Disappearing 1-Time Photos)
-  sendSnap(recipient_id: string, image_url: string, caption?: string) {
+  async sendSnap(recipient_id: string, image_url: string, caption?: string) {
     if (!this.currentUser) return;
+    const tempId = `snap-${Date.now()}`;
+
     const newSnap: SnapMessage = {
-      id: `snap-${Date.now()}`,
+      id: tempId,
       sender_id: this.currentUser.id,
       recipient_id,
       image_url,
@@ -1088,19 +1242,25 @@ export const appStore = {
 
     this.snaps = [newSnap, ...this.snaps];
     saveState('snaps', this.snaps);
+    notifyListeners();
 
-    sendSnapToSupabase(this.currentUser.id, recipient_id, image_url, caption);
-    
     const recipient = this.profiles.find(p => p.id === recipient_id);
     if (recipient) {
       this.addNotification(recipient_id, 'snap', '📸 New Disappearing Snap', `${this.currentUser.full_name} sent you a snap. Tap to view once.`);
     }
 
-    notifyListeners();
+    const remoteSnap = await sendSnapToSupabase(this.currentUser.id, recipient_id, image_url, caption);
+    if (remoteSnap) {
+      this.snaps = this.snaps.map(s => s.id === tempId ? { ...remoteSnap, sender_profile: this.currentUser } : s);
+      saveState('snaps', this.snaps);
+      notifyListeners();
+    }
+
     return newSnap;
   },
 
-  openSnap(snapId: string) {
+  async openSnap(snapId: string) {
+    const targetSnap = this.snaps.find(s => s.id === snapId);
     this.snaps = this.snaps.map(snap => {
       if (snap.id === snapId) {
         return {
@@ -1113,11 +1273,21 @@ export const appStore = {
     });
 
     saveState('snaps', this.snaps);
-    openSnapInSupabase(snapId);
     notifyListeners();
+
+    await openSnapInSupabase(snapId);
+
+    if (targetSnap && this.currentUser && targetSnap.sender_id !== this.currentUser.id) {
+      this.addNotification(
+        targetSnap.sender_id,
+        'snap_opened',
+        '📸 Snap Opened',
+        `${this.currentUser.full_name} opened your snap.`
+      );
+    }
   },
 
-  destroySnap(snapId: string) {
+  async destroySnap(snapId: string) {
     this.snaps = this.snaps.map(snap => {
       if (snap.id === snapId) {
         return {
@@ -1131,8 +1301,9 @@ export const appStore = {
     });
 
     saveState('snaps', this.snaps);
-    destroySnapInSupabase(snapId);
     notifyListeners();
+
+    await destroySnapInSupabase(snapId);
   },
 
   // Notifications
@@ -1148,8 +1319,12 @@ export const appStore = {
       created_at: new Date().toISOString(),
     };
 
-    this.notifications = [newNotif, ...this.notifications];
-    saveState('notifications', this.notifications);
+    // If for current user, add to local notifications state
+    if (this.currentUser && user_id === this.currentUser.id) {
+      this.notifications = [newNotif, ...this.notifications];
+      saveState('notifications', this.notifications);
+      notifyListeners();
+    }
 
     addNotificationToSupabase({
       user_id,
@@ -1158,16 +1333,15 @@ export const appStore = {
       message,
       link
     });
-
-    notifyListeners();
   },
 
-  markNotificationsAsRead() {
+  async markNotificationsAsRead() {
     if (!this.currentUser) return;
     this.notifications = this.notifications.map(n => n.user_id === this.currentUser?.id ? { ...n, is_read: true } : n);
     saveState('notifications', this.notifications);
-    markNotificationsReadInSupabase(this.currentUser.id);
     notifyListeners();
+
+    await markNotificationsReadInSupabase(this.currentUser.id);
   }
 };
 

@@ -20,6 +20,13 @@ export function subscribeToAllRealtimeTables(
     )
     .on(
       'postgres_changes',
+      { event: '*', schema: 'public', table: 'message_reactions' },
+      () => {
+        appStore.syncMessages();
+      }
+    )
+    .on(
+      'postgres_changes',
       { event: '*', schema: 'public', table: 'profiles' },
       (payload) => {
         if (payload.new) {
@@ -27,6 +34,27 @@ export function subscribeToAllRealtimeTables(
         } else {
           appStore.syncProfiles();
         }
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'friend_groups' },
+      () => {
+        appStore.syncProfiles();
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'group_members' },
+      () => {
+        appStore.syncProfiles();
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'friendships' },
+      () => {
+        appStore.syncProfiles();
       }
     )
     .on(
@@ -52,6 +80,13 @@ export function subscribeToAllRealtimeTables(
     )
     .on(
       'postgres_changes',
+      { event: '*', schema: 'public', table: 'payment_qr' },
+      () => {
+        appStore.syncProfiles();
+      }
+    )
+    .on(
+      'postgres_changes',
       { event: '*', schema: 'public', table: 'plans' },
       () => {
         appStore.syncPlans();
@@ -67,6 +102,13 @@ export function subscribeToAllRealtimeTables(
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'polls' },
+      () => {
+        appStore.syncPlans();
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'poll_options' },
       () => {
         appStore.syncPlans();
       }
@@ -132,7 +174,8 @@ export function subscribeToAllRealtimeTables(
       { event: '*', schema: 'public', table: 'notifications' },
       (payload) => {
         const notif = payload.new as any;
-        if (notif && notif.user_id === appStore.currentUser.id) {
+        const currentUserId = appStore.currentUser?.id;
+        if (notif && (!currentUserId || notif.user_id === currentUserId)) {
           appStore.syncNotifications();
           if (onNotificationReceived && payload.eventType === 'INSERT') {
             onNotificationReceived(notif);

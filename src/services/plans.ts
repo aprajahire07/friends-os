@@ -2,17 +2,28 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { GroupPlan, PlanPoll } from '../types';
 
 export async function fetchPlansFromSupabase(): Promise<GroupPlan[] | null> {
-  if (!isSupabaseConfigured) return null;
+  if (!isSupabaseConfigured || !supabase) return null;
 
   try {
-    const { data, error } = await supabase
+    let data: any[] | null = null;
+    const { data: primaryData, error: primaryErr } = await supabase
       .from('plans')
       .select('*, plan_participants(*), polls(*, poll_options(*, poll_votes(*))), creator_profile:creator_id(*)')
       .order('plan_date', { ascending: true });
 
-    if (error) {
-      console.warn('Supabase fetchPlans error:', error.message);
-      return null;
+    if (primaryErr || !primaryData) {
+      const { data: fallbackData, error: fallbackErr } = await supabase
+        .from('plans')
+        .select('*, plan_participants(*), polls(*, poll_options(*, poll_votes(*)))')
+        .order('plan_date', { ascending: true });
+
+      if (fallbackErr) {
+        console.warn('Supabase fetchPlans error:', fallbackErr.message);
+        return null;
+      }
+      data = fallbackData;
+    } else {
+      data = primaryData;
     }
 
     return (data || []).map((p: any) => ({
@@ -50,13 +61,13 @@ export async function fetchPlansFromSupabase(): Promise<GroupPlan[] | null> {
 }
 
 export async function addPlanToSupabase(plan: Partial<GroupPlan>): Promise<GroupPlan | null> {
-  if (!isSupabaseConfigured) return null;
+  if (!isSupabaseConfigured || !supabase) return null;
 
   try {
     const { data, error } = await supabase
       .from('plans')
       .insert([{
-        group_id: plan.group_id,
+        group_id: plan.group_id || 'main-group',
         creator_id: plan.creator_id,
         title: plan.title,
         description: plan.description,
@@ -65,7 +76,7 @@ export async function addPlanToSupabase(plan: Partial<GroupPlan>): Promise<Group
         start_time: plan.time,
         status: 'active'
       }])
-      .select('*, creator_profile:creator_id(*)')
+      .select()
       .single();
 
     if (error) {
@@ -92,7 +103,7 @@ export async function addPlanToSupabase(plan: Partial<GroupPlan>): Promise<Group
       status: 'upcoming',
       participants: [{ user_id: plan.creator_id!, status: 'joined' }],
       created_at: data.created_at,
-      creator_profile: data.creator_profile
+      creator_profile: plan.creator_profile
     };
   } catch (err) {
     console.error('Failed to add plan:', err);
@@ -101,7 +112,7 @@ export async function addPlanToSupabase(plan: Partial<GroupPlan>): Promise<Group
 }
 
 export async function updatePlanRsvpInSupabase(planId: string, userId: string, status: 'joined' | 'declined' | 'maybe'): Promise<boolean> {
-  if (!isSupabaseConfigured) return false;
+  if (!isSupabaseConfigured || !supabase) return false;
 
   try {
     const dbStatus = status === 'joined' ? 'going' : status;
@@ -125,7 +136,7 @@ export async function updatePlanRsvpInSupabase(planId: string, userId: string, s
 }
 
 export async function votePollOptionInSupabase(pollId: string, optionId: string, userId: string): Promise<boolean> {
-  if (!isSupabaseConfigured) return false;
+  if (!isSupabaseConfigured || !supabase) return false;
 
   try {
     const { error } = await supabase
@@ -148,7 +159,7 @@ export async function votePollOptionInSupabase(pollId: string, optionId: string,
 }
 
 export async function addPollToPlanInSupabase(planId: string, question: string, options: string[], allow_multiple = false): Promise<boolean> {
-  if (!isSupabaseConfigured) return false;
+  if (!isSupabaseConfigured || !supabase) return false;
 
   try {
     const { data: poll, error: pollErr } = await supabase

@@ -2,17 +2,28 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { Memory } from '../types';
 
 export async function fetchMemoriesFromSupabase(): Promise<Memory[] | null> {
-  if (!isSupabaseConfigured) return null;
+  if (!isSupabaseConfigured || !supabase) return null;
 
   try {
-    const { data, error } = await supabase
+    let data: any[] | null = null;
+    const { data: primaryData, error: primaryErr } = await supabase
       .from('memories')
       .select('*, memory_media(*), memory_tags(*), creator_profile:creator_id(*)')
       .order('memory_date', { ascending: false });
 
-    if (error) {
-      console.warn('Supabase fetchMemories error:', error.message);
-      return null;
+    if (primaryErr || !primaryData) {
+      const { data: fallbackData, error: fallbackErr } = await supabase
+        .from('memories')
+        .select('*, memory_media(*), memory_tags(*)')
+        .order('memory_date', { ascending: false });
+
+      if (fallbackErr) {
+        console.warn('Supabase fetchMemories error:', fallbackErr.message);
+        return null;
+      }
+      data = fallbackData;
+    } else {
+      data = primaryData;
     }
 
     return (data || []).map((m: any) => ({
@@ -35,20 +46,20 @@ export async function fetchMemoriesFromSupabase(): Promise<Memory[] | null> {
 }
 
 export async function addMemoryToSupabase(memory: Partial<Memory>): Promise<Memory | null> {
-  if (!isSupabaseConfigured) return null;
+  if (!isSupabaseConfigured || !supabase) return null;
 
   try {
     const { data, error } = await supabase
       .from('memories')
       .insert([{
-        group_id: memory.group_id,
+        group_id: memory.group_id || 'main-group',
         creator_id: memory.creator_id,
         title: memory.title,
         caption: memory.caption,
         memory_date: memory.date,
         location: memory.location
       }])
-      .select('*, creator_profile:creator_id(*)')
+      .select()
       .single();
 
     if (error) {
@@ -84,7 +95,7 @@ export async function addMemoryToSupabase(memory: Partial<Memory>): Promise<Memo
       location: data.location,
       tagged_user_ids: memory.tagged_user_ids || [],
       created_at: data.created_at,
-      creator_profile: data.creator_profile
+      creator_profile: memory.creator_profile
     };
   } catch (err) {
     console.error('Failed to add memory:', err);
