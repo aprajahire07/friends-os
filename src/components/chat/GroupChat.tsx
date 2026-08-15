@@ -15,7 +15,8 @@ import {
   Image as ImageIcon, 
   FileText, 
   Loader2, 
-  Check 
+  Check,
+  CheckCheck
 } from 'lucide-react';
 import { appStore, useAppStore } from '../../lib/store';
 import { ChatCategory, ChatMessage, Profile } from '../../types';
@@ -62,6 +63,11 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile }) => {
     m => m.category === activeCategory &&
          (!searchQuery || m.content.toLowerCase().includes(searchQuery.toLowerCase()))
   );
+
+  // Automatically mark all channels as read upon entering GroupChat
+  useEffect(() => {
+    appStore.markAllMessagesAsRead();
+  }, []);
 
   // Automatically mark the active category as read
   useEffect(() => {
@@ -197,25 +203,41 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile }) => {
           })}
         </div>
 
-        {/* Message Search in Chat */}
-        <div className="relative shrink-0 w-full sm:w-44">
-          <input
-            type="text"
-            placeholder="Search channel..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            className="w-full px-3 py-1.5 pl-8 pr-7 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 transition-all"
-          />
-          <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" />
-          {searchQuery && (
+        {/* Action Controls: Mark All Read & Message Search */}
+        <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
+          {store.getUnreadMessageCount() > 0 && (
             <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              className="absolute right-2 top-2 p-0.5 text-slate-400 hover:text-white"
+              onClick={() => {
+                appStore.markAllMessagesAsRead();
+                showToast('Messages Read', 'All channels marked as read.', 'success');
+              }}
+              className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shrink-0 transition-colors"
+              title="Mark all channels as read"
             >
-              <X className="w-3 h-3" />
+              <CheckCheck className="w-3.5 h-3.5 text-indigo-400" />
+              <span className="hidden sm:inline">Mark all read</span>
             </button>
           )}
+
+          <div className="relative shrink-0 w-full sm:w-44">
+            <input
+              type="text"
+              placeholder="Search channel..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="w-full px-3 py-1.5 pl-8 pr-7 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 transition-all"
+            />
+            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-2 p-0.5 text-slate-400 hover:text-white"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 

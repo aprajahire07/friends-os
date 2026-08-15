@@ -12,8 +12,8 @@ export const SEMESTER_CONFIG = {
 export const COLLEGE_OPTIONS = [
   {
     id: GHRCE_COLLEGE_ID,
-    name: 'GH Raisoni College of Engineering (GHRCE/GHRSTU)',
-    shortName: 'GHRCE / GHRSTU',
+    name: 'GH Raisoni College of Engineering and Management (GHRCEMN / GHRCE / GHRSTU)',
+    shortName: 'GHRCEMN (GHRCE/GHRSTU)',
     branch: 'Computer Science & Engineering',
     semester: 3,
     section: 'A',
@@ -39,7 +39,7 @@ export function resolveCollegeId(collegeStr?: string): string {
 
 export function getCollegeName(collegeId: string): string {
   if (collegeId === SKILLTECH_COLLEGE_ID) return 'SkillTech';
-  return 'GHRCE/GHRSTU';
+  return 'GHRCEMN (GHRCE/GHRSTU)';
 }
 
 // Exact Timetables
@@ -47,7 +47,7 @@ export const TIMETABLES: Record<string, Timetable> = {
   [GHRCE_COLLEGE_ID]: {
     id: 'tt-ghrce-sem3a',
     college_id: GHRCE_COLLEGE_ID,
-    college_name: 'GH Raisoni College of Engineering (GHRCE/GHRSTU)',
+    college_name: 'GH Raisoni College of Engineering and Management (GHRCEMN / GHRCE / GHRSTU)',
     branch: 'Computer Science & Engineering',
     semester: 3,
     section: 'A',

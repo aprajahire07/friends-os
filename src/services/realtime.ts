@@ -180,6 +180,20 @@ export function subscribeToAllRealtimeTables(
     )
     .on(
       'postgres_changes',
+      { event: '*', schema: 'public', table: 'exam_subjects' },
+      () => {
+        appStore.syncExamSubjects();
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'exam_papers' },
+      () => {
+        appStore.syncExamPapers();
+      }
+    )
+    .on(
+      'postgres_changes',
       { event: '*', schema: 'public', table: 'notifications' },
       (payload) => {
         const notif = payload.new as any;

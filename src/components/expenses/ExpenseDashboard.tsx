@@ -58,11 +58,11 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
   // Active Pending Calculations
   const loanOthersOweYou = loans
-    .filter(l => l.lender_id === currentUser.id && l.status === 'pending')
+    .filter(l => l.lender_id === currentUser.id && l.status !== 'paid')
     .reduce((sum, l) => sum + l.amount, 0);
 
   const loanYouOwe = loans
-    .filter(l => l.borrower_id === currentUser.id && l.status === 'pending')
+    .filter(l => l.borrower_id === currentUser.id && l.status !== 'paid')
     .reduce((sum, l) => sum + l.amount, 0);
 
   const groupOthersOweYou = expenses
@@ -84,19 +84,39 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   const othersOweYou = Math.round((loanOthersOweYou + groupOthersOweYou) * 100) / 100;
   const youOwe = Math.round((loanYouOwe + groupYouOwe) * 100) / 100;
 
-  const handleMarkPaid = (loanId: string, name: string) => {
-    appStore.markLoanAsPaid(loanId);
-    showToast('Marked as Paid 💰', `Settled ₹ debt with ${name}! Moved to History.`, 'success');
+  const handleClaimLoanPayment = async (loanId: string, lenderName: string) => {
+    await appStore.claimLoanPayment(loanId);
+    showToast('Payment Claimed 💰', `Notified ${lenderName} to verify and confirm receipt!`, 'info');
   };
 
-  const handleSettleGroupShare = (expenseId: string, userId: string) => {
-    appStore.settleExpenseShare(expenseId, userId);
-    showToast('Settled Share 💰', 'Marked expense share as settled.', 'success');
+  const handleConfirmLoanPayment = async (loanId: string, borrowerName: string) => {
+    await appStore.confirmLoanPayment(loanId);
+    showToast('Payment Confirmed ✅', `Settled loan with ${borrowerName}! Moved to History.`, 'success');
+  };
+
+  const handleRejectLoanPayment = async (loanId: string, borrowerName: string) => {
+    await appStore.rejectLoanPaymentClaim(loanId);
+    showToast('Claim Rejected ❌', `Notified ${borrowerName} that payment was not received.`, 'error');
+  };
+
+  const handleClaimExpenseShare = async (expenseId: string, payerName: string) => {
+    await appStore.claimExpenseShare(expenseId);
+    showToast('Share Claimed 💰', `Notified ${payerName} to confirm your split share!`, 'info');
+  };
+
+  const handleConfirmExpenseShare = async (expenseId: string, userId: string, memberName: string) => {
+    await appStore.confirmExpenseShare(expenseId, userId);
+    showToast('Share Confirmed ✅', `Confirmed ${memberName}'s payment share.`, 'success');
+  };
+
+  const handleRejectExpenseShare = async (expenseId: string, userId: string, memberName: string) => {
+    await appStore.rejectExpenseShareClaim(expenseId, userId);
+    showToast('Share Rejected ❌', `Rejected payment claim for ${memberName}.`, 'error');
   };
 
   // Active Loans & Active Expenses
-  const activeLoans = loans.filter(l => l.status === 'pending');
-  const activeExpenses = expenses.filter(e => e.participants.some(p => p.status === 'pending'));
+  const activeLoans = loans.filter(l => l.status === 'pending' || l.status === 'payment_claimed');
+  const activeExpenses = expenses.filter(e => e.participants.some(p => p.status !== 'settled'));
 
   // Filtering for History View
   const filteredHistory = useMemo(() => {
@@ -350,61 +370,128 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                     p => p.id === (isLender ? loan.borrower_id : loan.lender_id)
                   );
                   const otherName = otherProfile?.full_name.split(' ')[0] || 'Friend';
+                  const isClaimed = loan.status === 'payment_claimed';
 
                   return (
                     <div
                       key={loan.id}
-                      className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-3 shadow-md hover:border-slate-700 transition-colors"
+                      className={`p-4 rounded-2xl bg-slate-900 border transition-all shadow-md space-y-3 ${
+                        isClaimed
+                          ? isLender
+                            ? 'border-amber-500/70 bg-amber-950/20'
+                            : 'border-indigo-500/50 bg-indigo-950/20'
+                          : 'border-slate-800 hover:border-slate-700'
+                      }`}
                     >
-                      <div 
-                        onClick={() => setSelectedLoan(loan)}
-                        className="flex items-center gap-3 cursor-pointer flex-1"
-                      >
-                        <div className={`w-3 h-3 rounded-full shrink-0 ${isLender ? 'bg-emerald-400' : 'bg-rose-400'}`} />
-                        <div>
-                          <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
-                            {isLender ? (
-                              <span className="text-rose-400">🔴 {otherName} owes you ₹{loan.amount}</span>
-                            ) : (
-                              <span className="text-amber-400">🔴 You owe {otherName} ₹{loan.amount}</span>
-                            )}
-                            <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-normal">
-                              {loan.category || 'Loan'}
-                            </span>
-                          </h4>
-                          <p className="text-[10px] text-slate-400 mt-0.5">
-                            {loan.reason || 'Personal loan'} • {formatDateDisplay(loan.created_at)}
-                          </p>
+                      <div className="flex items-center justify-between gap-3">
+                        <div 
+                          onClick={() => setSelectedLoan(loan)}
+                          className="flex items-center gap-3 cursor-pointer flex-1"
+                        >
+                          <div className={`w-3 h-3 rounded-full shrink-0 ${isLender ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+                          <div>
+                            <h4 className="text-xs font-bold text-white flex items-center gap-1.5 flex-wrap">
+                              {isLender ? (
+                                <span className="text-rose-400">🔴 {otherName} owes you ₹{loan.amount}</span>
+                              ) : (
+                                <span className="text-amber-400">🔴 You owe {otherName} ₹{loan.amount}</span>
+                              )}
+                              <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-normal">
+                                {loan.category || 'Loan'}
+                              </span>
+                              {isClaimed && (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold">
+                                  ⏳ Payment Claimed
+                                </span>
+                              )}
+                            </h4>
+                            <p className="text-[10px] text-slate-400 mt-0.5">
+                              {loan.reason || 'Personal loan'} • {formatDateDisplay(loan.created_at)}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {!isLender && otherProfile && (
+                            <button
+                              onClick={() => onOpenPaymentQR(otherProfile)}
+                              className="p-2 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-indigo-400 border border-indigo-800 text-xs font-bold transition-colors"
+                              title="View Payment QR"
+                            >
+                              <QrCode className="w-4 h-4" />
+                            </button>
+                          )}
+
+                          <button
+                            onClick={() => setSelectedLoan(loan)}
+                            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold"
+                            title="View Details"
+                          >
+                            <Info className="w-4 h-4" />
+                          </button>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 shrink-0">
-                        {!isLender && otherProfile && (
-                          <button
-                            onClick={() => onOpenPaymentQR(otherProfile)}
-                            className="p-2 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-indigo-400 border border-indigo-800 text-xs font-bold transition-colors"
-                            title="View Payment QR"
-                          >
-                            <QrCode className="w-4 h-4" />
-                          </button>
-                        )}
-
-                        <button
-                          onClick={() => setSelectedLoan(loan)}
-                          className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold"
-                          title="View Details"
-                        >
-                          <Info className="w-4 h-4" />
-                        </button>
-
-                        <button
-                          onClick={() => handleMarkPaid(loan.id, otherName)}
-                          className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow flex items-center gap-1"
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>Mark Paid</span>
-                        </button>
-                      </div>
+                      {/* Action Controls & Confirmation Box */}
+                      {isLender ? (
+                        isClaimed ? (
+                          <div className="p-2.5 rounded-xl bg-amber-950/60 border border-amber-500/40 flex items-center justify-between gap-2">
+                            <div className="text-[11px] text-amber-200">
+                              <span className="font-bold">🔔 {otherName}</span> claims they sent ₹{loan.amount}.
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleConfirmLoanPayment(loan.id, otherName)}
+                                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow flex items-center gap-1"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>Confirm</span>
+                              </button>
+                              <button
+                                onClick={() => handleRejectLoanPayment(loan.id, otherName)}
+                                className="px-2.5 py-1.5 rounded-lg bg-rose-950 hover:bg-rose-900 border border-rose-800 text-rose-300 font-bold text-xs"
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex justify-end pt-1">
+                            <button
+                              onClick={() => handleConfirmLoanPayment(loan.id, otherName)}
+                              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow flex items-center gap-1"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>Mark Paid (Direct)</span>
+                            </button>
+                          </div>
+                        )
+                      ) : (
+                        isClaimed ? (
+                          <div className="p-2.5 rounded-xl bg-indigo-950/60 border border-indigo-500/40 text-[11px] text-indigo-200 flex items-center justify-between">
+                            <span>⏳ You claimed this payment. Waiting for {otherName} to confirm receipt.</span>
+                          </div>
+                        ) : (
+                          <div className="flex justify-end gap-2 pt-1">
+                            {otherProfile && (
+                              <button
+                                onClick={() => onOpenPaymentQR(otherProfile)}
+                                className="px-3 py-1.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 border border-indigo-800 text-indigo-300 text-xs font-bold flex items-center gap-1.5"
+                              >
+                                <QrCode className="w-3.5 h-3.5" />
+                                <span>Pay via QR</span>
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleClaimLoanPayment(loan.id, otherName)}
+                              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow flex items-center gap-1 active:scale-95 transition-all"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>I've Paid ₹{loan.amount}</span>
+                            </button>
+                          </div>
+                        )
+                      )}
                     </div>
                   );
                 })}
@@ -413,6 +500,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                 {activeExpenses.map(exp => {
                   const paidByMe = exp.paid_by === currentUser.id;
                   const payer = appStore.profiles.find(p => p.id === exp.paid_by);
+                  const payerName = payer?.full_name.split(' ')[0] || 'Friend';
 
                   return (
                     <div
@@ -431,7 +519,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                             </span>
                           </h4>
                           <p className="text-[10px] text-slate-400 mt-0.5">
-                            Total ₹{exp.total_amount} • Paid by {paidByMe ? 'You' : payer?.full_name.split(' ')[0]} • {formatDateDisplay(exp.created_at)}
+                            Total ₹{exp.total_amount} • Paid by {paidByMe ? 'You' : payerName} • {formatDateDisplay(exp.created_at)}
                           </p>
                         </div>
                         <span className="text-sm font-black text-amber-400">
@@ -439,34 +527,89 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                         </span>
                       </div>
 
-                      {/* Participant Shares with Settle Buttons */}
-                      <div className="pt-2 border-t border-slate-800/80 flex flex-wrap gap-2">
+                      {/* Participant Shares with Claim and Settle Controls */}
+                      <div className="pt-2 border-t border-slate-800/80 flex flex-col gap-2">
                         {exp.participants.map(part => {
                           const pProfile = appStore.profiles.find(p => p.id === part.user_id);
+                          const pName = pProfile?.full_name.split(' ')[0] || 'Friend';
                           const isSettled = part.status === 'settled';
+                          const isClaimed = part.status === 'payment_claimed';
+                          const isMe = part.user_id === currentUser.id;
 
                           return (
                             <div
                               key={part.user_id}
-                              className="text-[11px] px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center gap-2"
+                              className="text-[11px] p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-2"
                             >
-                              <span className="text-slate-300 font-medium">
-                                {pProfile?.full_name.split(' ')[0]}: <strong className="text-white">₹{part.share_amount}</strong>
-                              </span>
-                              {isSettled ? (
-                                <span className="text-emerald-400 font-bold text-[10px] flex items-center gap-0.5">
-                                  <CheckCircle2 className="w-3 h-3" /> Paid
+                              <div className="flex items-center gap-2">
+                                <img
+                                  src={pProfile?.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=100&q=80'}
+                                  alt=""
+                                  className="w-5 h-5 rounded-full object-cover"
+                                />
+                                <span className="text-slate-300 font-medium">
+                                  {isMe ? 'You' : pName}: <strong className="text-white">₹{part.share_amount}</strong>
                                 </span>
-                              ) : (
-                                paidByMe && (
-                                  <button
-                                    onClick={() => handleSettleGroupShare(exp.id, part.user_id)}
-                                    className="px-2 py-0.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[10px] transition-colors"
-                                  >
-                                    Settle
-                                  </button>
-                                )
-                              )}
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                {isSettled ? (
+                                  <span className="text-emerald-400 font-bold text-[10px] flex items-center gap-0.5 px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-800/60">
+                                    <CheckCircle2 className="w-3 h-3" /> Paid
+                                  </span>
+                                ) : isClaimed ? (
+                                  paidByMe ? (
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-amber-400 font-bold text-[10px]">Claims Paid:</span>
+                                      <button
+                                        onClick={() => handleConfirmExpenseShare(exp.id, part.user_id, pName)}
+                                        className="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] shadow"
+                                      >
+                                        Confirm
+                                      </button>
+                                      <button
+                                        onClick={() => handleRejectExpenseShare(exp.id, part.user_id, pName)}
+                                        className="px-2 py-0.5 rounded bg-rose-950 hover:bg-rose-900 text-rose-300 font-bold text-[10px] border border-rose-800"
+                                      >
+                                        Reject
+                                      </button>
+                                    </div>
+                                  ) : isMe ? (
+                                    <span className="text-amber-300 font-medium text-[10px] px-2 py-0.5 rounded bg-amber-950/60 border border-amber-800/60">
+                                      ⏳ Awaiting {payerName}'s confirmation
+                                    </span>
+                                  ) : (
+                                    <span className="text-amber-400 font-medium text-[10px]">Claimed</span>
+                                  )
+                                ) : isMe && !paidByMe ? (
+                                  <div className="flex items-center gap-1.5">
+                                    {payer && (
+                                      <button
+                                        onClick={() => onOpenPaymentQR(payer)}
+                                        className="p-1 rounded bg-indigo-950 hover:bg-indigo-900 text-indigo-400 border border-indigo-800 text-[10px]"
+                                        title="Pay via UPI QR"
+                                      >
+                                        <QrCode className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                    <button
+                                      onClick={() => handleClaimExpenseShare(exp.id, payerName)}
+                                      className="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] transition-all active:scale-95"
+                                    >
+                                      I've Paid My ₹{part.share_amount}
+                                    </button>
+                                  </div>
+                                ) : (
+                                  paidByMe && (
+                                    <button
+                                      onClick={() => handleConfirmExpenseShare(exp.id, part.user_id, pName)}
+                                      className="px-2 py-0.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[10px] transition-colors"
+                                    >
+                                      Mark Settle
+                                    </button>
+                                  )
+                                )}
+                              </div>
                             </div>
                           );
                         })}

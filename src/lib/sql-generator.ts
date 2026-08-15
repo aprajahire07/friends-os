@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   username TEXT UNIQUE NOT NULL,
   avatar_url TEXT,
   birthday DATE,
-  college TEXT DEFAULT 'GHRCE/GHRSTU',
+  college TEXT DEFAULT 'GHRCEMN (GHRCE/GHRSTU)',
   course_branch TEXT DEFAULT 'Computer Science & Engineering',
   semester INT DEFAULT 3,
   role TEXT DEFAULT 'member' CHECK (role IN ('admin', 'member')),
@@ -73,7 +73,7 @@ BEGIN
     COALESCE(NEW.raw_user_meta_data->>'full_name', SPLIT_PART(NEW.email, '@', 1)),
     COALESCE(NEW.raw_user_meta_data->>'username', SPLIT_PART(NEW.email, '@', 1) || '_' || SUBSTRING(NEW.id::text, 1, 4)),
     COALESCE((NEW.raw_user_meta_data->>'birthday')::date, CURRENT_DATE),
-    COALESCE(NEW.raw_user_meta_data->>'college', 'GHRCE/GHRSTU'),
+    COALESCE(NEW.raw_user_meta_data->>'college', 'GHRCEMN (GHRCE/GHRSTU)'),
     COALESCE(NEW.raw_user_meta_data->>'course_branch', 'Computer Science & Engineering'),
     COALESCE((NEW.raw_user_meta_data->>'semester')::int, 3)
   )
@@ -153,10 +153,10 @@ CREATE TABLE IF NOT EXISTS public.message_reactions (
 
 CREATE TABLE IF NOT EXISTS public.message_reads (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  channel_id UUID REFERENCES public.chat_channels(id) ON DELETE CASCADE,
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  category TEXT NOT NULL DEFAULT 'general',
   last_read_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(channel_id, user_id)
+  UNIQUE(user_id, category)
 );
 
 -- 4. EXPENSES & LOANS DATABASE
@@ -179,7 +179,9 @@ CREATE TABLE IF NOT EXISTS public.expense_participants (
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
   share_amount NUMERIC NOT NULL,
   paid_status BOOLEAN DEFAULT false,
-  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'settled')),
+  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'payment_claimed', 'settled')),
+  claimed_at TIMESTAMPTZ,
+  settled_at TIMESTAMPTZ,
   UNIQUE(expense_id, user_id)
 );
 
@@ -192,7 +194,8 @@ CREATE TABLE IF NOT EXISTS public.loans (
   reason TEXT NOT NULL,
   category TEXT NOT NULL CHECK (category IN ('food', 'auto', 'bus', 'metro', 'movie', 'cash', 'other', 'Food', 'Auto', 'Bus', 'Metro', 'Cash', 'Other')),
   loan_date DATE DEFAULT CURRENT_DATE,
-  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'paid')),
+  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'payment_claimed', 'paid')),
+  claimed_at TIMESTAMPTZ,
   paid_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -545,6 +548,11 @@ DROP POLICY IF EXISTS "Message reactions insert" ON public.message_reactions;
 CREATE POLICY "Message reactions insert" ON public.message_reactions FOR INSERT WITH CHECK (auth.uid() = user_id);
 DROP POLICY IF EXISTS "Message reactions delete" ON public.message_reactions;
 CREATE POLICY "Message reactions delete" ON public.message_reactions FOR DELETE USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Message reads select" ON public.message_reads;
+CREATE POLICY "Message reads select" ON public.message_reads FOR SELECT USING (auth.uid() = user_id OR auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Message reads insert/update" ON public.message_reads;
+CREATE POLICY "Message reads insert/update" ON public.message_reads FOR ALL USING (auth.uid() = user_id);
 
 DROP POLICY IF EXISTS "Expenses select" ON public.expenses;
 CREATE POLICY "Expenses select" ON public.expenses FOR SELECT USING (auth.role() = 'authenticated');

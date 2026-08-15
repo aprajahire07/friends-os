@@ -39,7 +39,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, initialMode = '
   const [fullName, setFullName] = useState('');
   const [username, setUsername] = useState('');
   const [birthday, setBirthday] = useState('');
-  const [college, setCollege] = useState('GH Raisoni College of Engineering (GHRCE/GHRSTU)');
+  const [college, setCollege] = useState('GH Raisoni College of Engineering and Management (GHRCEMN / GHRCE / GHRSTU)');
   const [courseBranch, setCourseBranch] = useState('Computer Science & Engineering');
   const [semester, setSemester] = useState(3);
 
@@ -83,7 +83,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, initialMode = '
             full_name: meta.full_name || email.split('@')[0],
             username: meta.username || email.split('@')[0].toLowerCase(),
             birthday: meta.birthday || '2004-09-15',
-            college: meta.college || 'GH Raisoni College of Engineering (GHRCE/GHRSTU)',
+            college: meta.college || 'GH Raisoni College of Engineering and Management (GHRCEMN / GHRCE / GHRSTU)',
             course_branch: meta.course_branch || 'Computer Science & Engineering',
             semester: meta.semester || 3,
             role: 'member',
@@ -456,7 +456,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, initialMode = '
                 onChange={e => setCollege(e.target.value)}
                 className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
               >
-                <option value="GH Raisoni College of Engineering (GHRCE/GHRSTU)">GH Raisoni College of Engineering (GHRCE/GHRSTU)</option>
+                <option value="GH Raisoni College of Engineering and Management (GHRCEMN / GHRCE / GHRSTU)">GH Raisoni College of Engineering & Management (GHRCEMN / GHRCE / GHRSTU)</option>
                 <option value="SkillTech Institute">SkillTech Institute</option>
                 <option value="Other Engineering College">Other Engineering College</option>
               </select>

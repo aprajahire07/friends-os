@@ -17,13 +17,34 @@ import {
   SnapMessage, 
   AppNotification,
   ChatCategory,
-  FriendGroup
+  FriendGroup,
+  ExamSubject,
+  ExamPaper,
+  ExamType
 } from '../types';
 import { resolveCollegeId, GHRCE_COLLEGE_ID, SKILLTECH_COLLEGE_ID } from './timetables';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { fetchProfilesFromSupabase, updateProfileInSupabase } from '../services/profiles';
-import { fetchMessagesFromSupabase, sendMessageToSupabase, fetchMessageReadsFromSupabase, markCategoryAsReadInSupabase } from '../services/chat';
-import { fetchExpensesFromSupabase, addExpenseToSupabase, fetchLoansFromSupabase, addLoanToSupabase, settleLoanInSupabase, settleExpenseShareInSupabase } from '../services/expenses';
+import { 
+  fetchMessagesFromSupabase, 
+  sendMessageToSupabase, 
+  fetchMessageReadsFromSupabase, 
+  markCategoryAsReadInSupabase,
+  markAllCategoriesAsReadInSupabase 
+} from '../services/chat';
+import { 
+  fetchExpensesFromSupabase, 
+  addExpenseToSupabase, 
+  fetchLoansFromSupabase, 
+  addLoanToSupabase, 
+  claimLoanPaymentInSupabase,
+  confirmLoanPaymentInSupabase, 
+  rejectLoanPaymentClaimInSupabase,
+  settleLoanInSupabase, 
+  claimExpenseShareInSupabase,
+  settleExpenseShareInSupabase,
+  rejectExpenseShareClaimInSupabase
+} from '../services/expenses';
 import { fetchPlansFromSupabase, addPlanToSupabase, updatePlanRsvpInSupabase, votePollOptionInSupabase, addPollToPlanInSupabase } from '../services/plans';
 import { fetchMemoriesFromSupabase, addMemoryToSupabase } from '../services/memories';
 import { fetchBorrowedItemsFromSupabase, addBorrowedItemToSupabase, markItemReturnedInSupabase } from '../services/borrowed';
@@ -31,6 +52,15 @@ import { fetchDateAttendanceFromSupabase, markDateAttendanceInSupabase, fetchCla
 import { fetchSnapsFromSupabase, sendSnapToSupabase, openSnapInSupabase, destroySnapInSupabase } from '../services/snaps';
 import { fetchNotificationsFromSupabase, addNotificationToSupabase, markNotificationsReadInSupabase } from '../services/notifications';
 import { fetchUserGroup } from '../services/groups';
+import { 
+  fetchExamSubjectsFromSupabase, 
+  fetchExamPapersFromSupabase, 
+  createExamPaperInSupabase, 
+  updateExamPaperInSupabase, 
+  deleteExamPaperInSupabase, 
+  uploadExamPaperFile,
+  DEFAULT_EXAM_SUBJECTS 
+} from '../services/examPapers';
 import { 
   fetchMemoryLockSettingsFromSupabase, 
   updateMemoryLockInSupabase, 
@@ -98,6 +128,10 @@ export const appStore = {
   memoriesPasscodeHash: loadInitialState<string>('memoriesPasscodeHash', DEFAULT_PASSCODE_HASH),
   sessionUnlockedMemories: false,
 
+  // Exam Papers & Subjects
+  examSubjects: loadInitialState<ExamSubject[]>('examSubjects', []),
+  examPapers: loadInitialState<ExamPaper[]>('examPapers', []),
+
   subscribe(listener: Listener) {
     listeners.add(listener);
     return () => listeners.delete(listener);
@@ -122,7 +156,9 @@ export const appStore = {
         remoteNotifications,
         remoteSettings,
         remoteGroupData,
-        remoteMessageReads
+        remoteMessageReads,
+        remoteExamSubjects,
+        remoteExamPapers
       ] = await Promise.all([
         fetchProfilesFromSupabase(),
         fetchMessagesFromSupabase(),
@@ -137,13 +173,22 @@ export const appStore = {
         fetchNotificationsFromSupabase(this.currentUser.id),
         fetchMemoryLockSettingsFromSupabase(),
         fetchUserGroup(this.currentUser.id),
-        fetchMessageReadsFromSupabase(this.currentUser.id)
+        fetchMessageReadsFromSupabase(this.currentUser.id),
+        fetchExamSubjectsFromSupabase(),
+        fetchExamPapersFromSupabase()
       ]);
 
+      const localReads = loadInitialState<Record<string, string>>(`messageReads_${this.currentUser.id}`, {});
+      const mergedReads: Record<string, string> = { ...localReads };
       if (remoteMessageReads) {
-        this.messageReads = remoteMessageReads;
-        saveState('messageReads', this.messageReads);
+        for (const [cat, time] of Object.entries(remoteMessageReads)) {
+          if (!mergedReads[cat] || new Date(time).getTime() > new Date(mergedReads[cat]).getTime()) {
+            mergedReads[cat] = time;
+          }
+        }
       }
+      this.messageReads = mergedReads;
+      saveState(`messageReads_${this.currentUser.id}`, this.messageReads);
 
       if (remoteGroupData) {
         this.group = remoteGroupData.group;
@@ -176,6 +221,14 @@ export const appStore = {
       if (remoteReports) this.cancellationReports = remoteReports;
       if (remoteSnaps) this.snaps = remoteSnaps;
       if (remoteNotifications) this.notifications = remoteNotifications;
+      if (remoteExamSubjects) {
+        this.examSubjects = remoteExamSubjects;
+        saveState('examSubjects', this.examSubjects);
+      }
+      if (remoteExamPapers) {
+        this.examPapers = remoteExamPapers;
+        saveState('examPapers', this.examPapers);
+      }
 
       notifyListeners();
     } catch (err) {
@@ -222,11 +275,18 @@ export const appStore = {
     if (!isSupabaseConfigured || !this.currentUser) return;
     try {
       const remoteReads = await fetchMessageReadsFromSupabase(this.currentUser.id);
+      const localReads = loadInitialState<Record<string, string>>(`messageReads_${this.currentUser.id}`, {});
+      const merged: Record<string, string> = { ...localReads };
       if (remoteReads) {
-        this.messageReads = remoteReads;
-        saveState('messageReads', this.messageReads);
-        notifyListeners();
+        for (const [cat, time] of Object.entries(remoteReads)) {
+          if (!merged[cat] || new Date(time).getTime() > new Date(merged[cat]).getTime()) {
+            merged[cat] = time;
+          }
+        }
       }
+      this.messageReads = merged;
+      saveState(`messageReads_${this.currentUser.id}`, this.messageReads);
+      notifyListeners();
     } catch (err) {
       console.warn('Error syncing message reads:', err);
     }
@@ -364,6 +424,178 @@ export const appStore = {
     } catch (err) {
       console.warn('Error syncing app settings:', err);
     }
+  },
+
+  async syncExamSubjects() {
+    try {
+      const remoteSubjects = await fetchExamSubjectsFromSupabase();
+      if (remoteSubjects && remoteSubjects.length > 0) {
+        this.examSubjects = remoteSubjects;
+        saveState('examSubjects', this.examSubjects);
+        notifyListeners();
+      }
+    } catch (err) {
+      console.warn('Error syncing exam subjects:', err);
+    }
+  },
+
+  async syncExamPapers() {
+    try {
+      const [remoteSubjects, remotePapers] = await Promise.all([
+        fetchExamSubjectsFromSupabase(),
+        fetchExamPapersFromSupabase()
+      ]);
+      if (remoteSubjects && remoteSubjects.length > 0) {
+        this.examSubjects = remoteSubjects;
+        saveState('examSubjects', this.examSubjects);
+      }
+      if (remotePapers) {
+        this.examPapers = remotePapers;
+        saveState('examPapers', this.examPapers);
+      }
+      notifyListeners();
+    } catch (err) {
+      console.warn('Error syncing exam papers:', err);
+    }
+  },
+
+  async uploadExamPaper(
+    paperData: {
+      subject_id: string;
+      title: string;
+      exam_type: string;
+      academic_year: string;
+    },
+    file: File,
+    onProgress?: (percent: number) => void
+  ): Promise<{ success: boolean; paper?: ExamPaper; error?: string }> {
+    if (!this.currentUser) {
+      return { success: false, error: 'You must be logged in to upload papers.' };
+    }
+
+    if (!isUserAdmin(this.currentUser)) {
+      return { success: false, error: 'Access denied. Only the Admin (aprajahire07@gmail.com) can upload exam papers.' };
+    }
+
+    const selectedSubject = this.examSubjects.find(s => s.id === paperData.subject_id);
+    const subjectCode = selectedSubject?.code || 'GENERAL';
+
+    // 1. Upload binary document to Supabase Storage bucket 'exam-papers'
+    const uploadRes = await uploadExamPaperFile(file, subjectCode, paperData.academic_year, onProgress);
+    if (uploadRes.error || !uploadRes.storagePath) {
+      return { success: false, error: uploadRes.error || 'Failed to upload paper to storage.' };
+    }
+
+    // 2. Insert record into Supabase Database table 'exam_papers'
+    const dbRes = await createExamPaperInSupabase({
+      subject_id: paperData.subject_id,
+      title: paperData.title,
+      exam_type: paperData.exam_type,
+      academic_year: paperData.academic_year,
+      file_path: uploadRes.storagePath,
+      file_name: uploadRes.fileName,
+      file_type: uploadRes.fileType,
+      file_size: uploadRes.fileSize,
+      uploaded_by: this.currentUser.id
+    });
+
+    if (dbRes.error || !dbRes.paper) {
+      return { success: false, error: dbRes.error || 'Failed to save paper details.' };
+    }
+
+    // 3. Update local state
+    this.examPapers = [dbRes.paper, ...this.examPapers.filter(p => p.id !== dbRes.paper!.id)];
+    saveState('examPapers', this.examPapers);
+    notifyListeners();
+
+    // 4. Send notification to group friends
+    this.profiles.forEach(p => {
+      if (p.id !== this.currentUser.id) {
+        this.addNotification(
+          p.id,
+          'exam_paper',
+          '📚 New Exam Paper Added',
+          `${selectedSubject?.name || 'Subject'}: ${paperData.title} (${paperData.exam_type} ${paperData.academic_year}) is now available.`,
+          dbRes.paper?.id
+        );
+      }
+    });
+
+    return { success: true, paper: dbRes.paper };
+  },
+
+  async updateExamPaper(
+    paperId: string,
+    updates: {
+      title: string;
+      exam_type: string;
+      academic_year: string;
+      subject_id: string;
+    },
+    newFile?: File | null,
+    onProgress?: (p: number) => void
+  ): Promise<{ success: boolean; paper?: ExamPaper; error?: string }> {
+    if (!this.currentUser) return { success: false, error: 'Not authenticated.' };
+    if (!isUserAdmin(this.currentUser)) {
+      return { success: false, error: 'Only admin can edit exam papers.' };
+    }
+
+    const currentPaper = this.examPapers.find(p => p.id === paperId);
+    let finalFilePath = currentPaper?.file_path;
+    let finalFileName = currentPaper?.file_name;
+    let finalFileType = currentPaper?.file_type;
+    let finalFileSize = currentPaper?.file_size;
+
+    if (newFile) {
+      const selectedSubject = this.examSubjects.find(s => s.id === updates.subject_id);
+      const subjectCode = selectedSubject?.code || 'GENERAL';
+      const uploadRes = await uploadExamPaperFile(newFile, subjectCode, updates.academic_year, onProgress);
+      if (uploadRes.error) {
+        return { success: false, error: uploadRes.error };
+      }
+      finalFilePath = uploadRes.storagePath;
+      finalFileName = uploadRes.fileName;
+      finalFileType = uploadRes.fileType;
+      finalFileSize = uploadRes.fileSize;
+    }
+
+    const res = await updateExamPaperInSupabase(paperId, {
+      ...updates,
+      file_path: finalFilePath,
+      file_name: finalFileName,
+      file_type: finalFileType,
+      file_size: finalFileSize
+    });
+
+    if (res.error || !res.paper) {
+      return { success: false, error: res.error || 'Failed to update paper.' };
+    }
+
+    this.examPapers = this.examPapers.map(p => p.id === paperId ? res.paper! : p);
+    saveState('examPapers', this.examPapers);
+    notifyListeners();
+
+    return { success: true, paper: res.paper };
+  },
+
+  async deleteExamPaper(paperId: string): Promise<{ success: boolean; error?: string }> {
+    if (!this.currentUser) return { success: false, error: 'Not authenticated.' };
+    if (!isUserAdmin(this.currentUser)) {
+      return { success: false, error: 'Only admin can delete exam papers.' };
+    }
+
+    const targetPaper = this.examPapers.find(p => p.id === paperId);
+    const res = await deleteExamPaperInSupabase(paperId, targetPaper?.file_path);
+
+    if (!res.success) {
+      return { success: false, error: res.error || 'Failed to delete paper.' };
+    }
+
+    this.examPapers = this.examPapers.filter(p => p.id !== paperId);
+    saveState('examPapers', this.examPapers);
+    notifyListeners();
+
+    return { success: true };
   },
 
   handleRemoteProfileUpdate(updatedProfile: Profile) {
@@ -576,7 +808,12 @@ export const appStore = {
     }
     saveState('currentUser', this.currentUser);
     saveState('profiles', this.profiles);
+
+    // Load user-specific message reads
+    this.messageReads = loadInitialState<Record<string, string>>(`messageReads_${user.id}`, {});
     notifyListeners();
+
+    this.syncMessageReads();
   },
 
   logout() {
@@ -597,6 +834,7 @@ export const appStore = {
     this.assignments = [];
     this.snaps = [];
     this.notifications = [];
+    this.messageReads = {};
     this.sessionUnlockedMemories = false;
     localStorage.removeItem('friend_os_currentUser');
     localStorage.removeItem('friend_os_group');
@@ -689,6 +927,14 @@ export const appStore = {
 
     this.messages = [...this.messages, newMsg];
     saveState('messages', this.messages);
+
+    // Update active category read pointer for current user immediately
+    const nowIso = new Date().toISOString();
+    this.messageReads = {
+      ...this.messageReads,
+      [category]: nowIso
+    };
+    saveState(`messageReads_${this.currentUser.id}`, this.messageReads);
     notifyListeners();
 
     const remoteMsg = await sendMessageToSupabase({
@@ -746,10 +992,25 @@ export const appStore = {
       ...this.messageReads,
       [category]: now
     };
-    saveState('messageReads', this.messageReads);
+    saveState(`messageReads_${this.currentUser.id}`, this.messageReads);
     notifyListeners();
 
     await markCategoryAsReadInSupabase(this.currentUser.id, category);
+  },
+
+  async markAllMessagesAsRead() {
+    if (!this.currentUser) return;
+    const now = new Date().toISOString();
+    const categories: ChatCategory[] = ['general', 'money', 'college', 'plans', 'memories', 'random'];
+    const updated: Record<string, string> = { ...this.messageReads };
+    for (const cat of categories) {
+      updated[cat] = now;
+    }
+    this.messageReads = updated;
+    saveState(`messageReads_${this.currentUser.id}`, this.messageReads);
+    notifyListeners();
+
+    await markAllCategoriesAsReadInSupabase(this.currentUser.id);
   },
 
   getUnreadMessageCount(category?: ChatCategory): number {
@@ -758,8 +1019,11 @@ export const appStore = {
 
     if (category) {
       const lastRead = this.messageReads[category] || '1970-01-01T00:00:00.000Z';
+      const lastReadTime = new Date(lastRead).getTime();
       return this.messages.filter(
-        m => m.category === category && m.sender_id !== myId && m.created_at > lastRead
+        m => (m.category === category || (!m.category && category === 'general')) &&
+             m.sender_id !== myId &&
+             new Date(m.created_at).getTime() > lastReadTime
       ).length;
     }
 
@@ -768,8 +1032,11 @@ export const appStore = {
     let total = 0;
     for (const cat of categories) {
       const lastRead = this.messageReads[cat] || '1970-01-01T00:00:00.000Z';
+      const lastReadTime = new Date(lastRead).getTime();
       total += this.messages.filter(
-        m => m.category === cat && m.sender_id !== myId && m.created_at > lastRead
+        m => (m.category === cat || (!m.category && cat === 'general')) &&
+             m.sender_id !== myId &&
+             new Date(m.created_at).getTime() > lastReadTime
       ).length;
     }
     return total;
@@ -837,21 +1104,31 @@ export const appStore = {
     }
   },
 
-  async addPersonalLoan(borrower_id: string, amount: number, reason: string, category: PersonalLoan['category']) {
+  async addPersonalLoan(
+    borrower_id: string, 
+    amount: number, 
+    reason: string, 
+    category: PersonalLoan['category'],
+    customLenderId?: string
+  ) {
     if (!this.currentUser) return;
     const tempId = `loan-${Date.now()}`;
-    const borrower = this.profiles.find(p => p.id === borrower_id);
+    const lenderId = customLenderId || this.currentUser.id;
+    const actualBorrowerId = borrower_id;
+
+    const lender = this.profiles.find(p => p.id === lenderId) || (lenderId === this.currentUser.id ? this.currentUser : undefined);
+    const borrower = this.profiles.find(p => p.id === actualBorrowerId) || (actualBorrowerId === this.currentUser.id ? this.currentUser : undefined);
 
     const newLoan: PersonalLoan = {
       id: tempId,
-      lender_id: this.currentUser.id,
-      borrower_id,
+      lender_id: lenderId,
+      borrower_id: actualBorrowerId,
       amount,
       reason,
       category,
       status: 'pending',
       created_at: new Date().toISOString(),
-      lender_profile: this.currentUser,
+      lender_profile: lender,
       borrower_profile: borrower,
     };
 
@@ -859,31 +1136,76 @@ export const appStore = {
     saveState('loans', this.loans);
     notifyListeners();
 
-    // Send notification to borrower
-    this.addNotification(
-      borrower_id,
-      'expense',
-      '🤝 New Loan Added',
-      `${this.currentUser.full_name} recorded a loan of ₹${amount} for "${reason}".`
-    );
+    // Auto post to chat
+    const isCurrentUserLender = this.currentUser.id === lenderId;
+    if (isCurrentUserLender) {
+      this.addMessage('money', `🤝 ${this.currentUser.full_name} gave ₹${amount} to ${borrower?.full_name.split(' ')[0] || 'friend'} for "${reason}".`);
+      this.addNotification(
+        actualBorrowerId,
+        'expense',
+        '🤝 New Debt Added',
+        `${this.currentUser.full_name} recorded that you owe ₹${amount} for "${reason}".`
+      );
+    } else {
+      this.addMessage('money', `🤝 ${this.currentUser.full_name} borrowed ₹${amount} from ${lender?.full_name.split(' ')[0] || 'friend'} for "${reason}".`);
+      this.addNotification(
+        lenderId,
+        'expense',
+        '🤝 New Debt Recorded',
+        `${this.currentUser.full_name} recorded that they owe you ₹${amount} for "${reason}".`
+      );
+    }
 
     const remoteLoan = await addLoanToSupabase({
-      lender_id: this.currentUser.id,
-      borrower_id,
+      lender_id: lenderId,
+      borrower_id: actualBorrowerId,
       amount,
       reason,
       category
     });
 
     if (remoteLoan) {
-      this.loans = this.loans.map(l => l.id === tempId ? { ...remoteLoan, lender_profile: this.currentUser, borrower_profile: borrower } : l);
+      this.loans = this.loans.map(l => l.id === tempId ? { ...remoteLoan, lender_profile: lender, borrower_profile: borrower } : l);
       saveState('loans', this.loans);
       notifyListeners();
     }
   },
 
-  async markLoanAsPaid(loanId: string) {
+  async claimLoanPayment(loanId: string) {
     const targetLoan = this.loans.find(l => l.id === loanId);
+    if (!targetLoan) return;
+
+    this.loans = this.loans.map(loan => {
+      if (loan.id === loanId) {
+        return {
+          ...loan,
+          status: 'payment_claimed',
+          claimed_at: new Date().toISOString()
+        };
+      }
+      return loan;
+    });
+
+    saveState('loans', this.loans);
+    notifyListeners();
+
+    await claimLoanPaymentInSupabase(loanId);
+
+    // Notify lender to confirm
+    if (this.currentUser && targetLoan.lender_id !== this.currentUser.id) {
+      this.addNotification(
+        targetLoan.lender_id,
+        'payment',
+        '💰 Payment Confirmation Requested',
+        `${this.currentUser.full_name} claims they paid ₹${targetLoan.amount} for "${targetLoan.reason}". Please confirm receipt.`
+      );
+    }
+  },
+
+  async confirmLoanPayment(loanId: string) {
+    const targetLoan = this.loans.find(l => l.id === loanId);
+    if (!targetLoan) return;
+
     this.loans = this.loans.map(loan => {
       if (loan.id === loanId) {
         return {
@@ -898,27 +1220,104 @@ export const appStore = {
     saveState('loans', this.loans);
     notifyListeners();
 
-    await settleLoanInSupabase(loanId);
+    await confirmLoanPaymentInSupabase(loanId);
 
-    // Cross-user notification
-    if (targetLoan && this.currentUser) {
-      const isBorrower = this.currentUser.id === targetLoan.borrower_id;
-      const recipientId = isBorrower ? targetLoan.lender_id : targetLoan.borrower_id;
-      const message = isBorrower
-        ? `${this.currentUser.full_name} marked loan of ₹${targetLoan.amount} (${targetLoan.reason}) as paid.`
-        : `${this.currentUser.full_name} confirmed receipt of ₹${targetLoan.amount} payment.`;
-
-      this.addNotification(recipientId, 'payment', '✅ Loan Settled', message);
+    // Notify borrower that payment was confirmed
+    if (this.currentUser) {
+      this.addNotification(
+        targetLoan.borrower_id,
+        'payment',
+        '✅ Payment Confirmed',
+        `${this.currentUser.full_name} confirmed your payment of ₹${targetLoan.amount} for "${targetLoan.reason}".`
+      );
     }
   },
 
-  async settleExpenseShare(expenseId: string, userId: string) {
+  async rejectLoanPaymentClaim(loanId: string) {
+    const targetLoan = this.loans.find(l => l.id === loanId);
+    if (!targetLoan) return;
+
+    this.loans = this.loans.map(loan => {
+      if (loan.id === loanId) {
+        return {
+          ...loan,
+          status: 'pending',
+          claimed_at: null
+        };
+      }
+      return loan;
+    });
+
+    saveState('loans', this.loans);
+    notifyListeners();
+
+    await rejectLoanPaymentClaimInSupabase(loanId);
+
+    // Notify borrower that payment was rejected
+    if (this.currentUser) {
+      this.addNotification(
+        targetLoan.borrower_id,
+        'payment',
+        '❌ Payment Claim Rejected',
+        `${this.currentUser.full_name} indicated they did not receive your payment of ₹${targetLoan.amount} for "${targetLoan.reason}".`
+      );
+    }
+  },
+
+  async markLoanAsPaid(loanId: string) {
+    // Backward compatibility for lender direct mark paid
+    return this.confirmLoanPayment(loanId);
+  },
+
+  async claimExpenseShare(expenseId: string, userId?: string) {
+    const targetUserId = userId || this.currentUser?.id;
+    if (!targetUserId) return;
+
     const targetExpense = this.expenses.find(e => e.id === expenseId);
+    const participant = targetExpense?.participants.find(p => p.user_id === targetUserId);
+    const shareAmount = participant?.share_amount || 0;
+
     this.expenses = this.expenses.map(exp => {
       if (exp.id !== expenseId) return exp;
       return {
         ...exp,
-        participants: exp.participants.map(p => p.user_id === userId ? { ...p, status: 'settled' } : p)
+        participants: exp.participants.map(p => 
+          p.user_id === targetUserId 
+            ? { ...p, status: 'payment_claimed', claimed_at: new Date().toISOString() } 
+            : p
+        )
+      };
+    });
+
+    saveState('expenses', this.expenses);
+    notifyListeners();
+
+    await claimExpenseShareInSupabase(expenseId, targetUserId);
+
+    if (targetExpense && this.currentUser && targetExpense.paid_by !== targetUserId) {
+      this.addNotification(
+        targetExpense.paid_by,
+        'payment',
+        '💰 Split Share Claimed',
+        `${this.currentUser.full_name} claims they paid their ₹${shareAmount} share for "${targetExpense.title}". Please confirm.`
+      );
+    }
+  },
+
+  async confirmExpenseShare(expenseId: string, userId: string) {
+    const targetExpense = this.expenses.find(e => e.id === expenseId);
+    const participant = targetExpense?.participants.find(p => p.user_id === userId);
+    const shareAmount = participant?.share_amount || 0;
+
+    this.expenses = this.expenses.map(exp => {
+      if (exp.id !== expenseId) return exp;
+      return {
+        ...exp,
+        participants: exp.participants.map(p => 
+          p.user_id === userId 
+            ? { ...p, status: 'settled', settled_at: new Date().toISOString() } 
+            : p
+        )
       };
     });
 
@@ -927,14 +1326,50 @@ export const appStore = {
 
     await settleExpenseShareInSupabase(expenseId, userId);
 
-    if (targetExpense && this.currentUser && targetExpense.paid_by !== userId) {
+    if (targetExpense && this.currentUser) {
       this.addNotification(
-        targetExpense.paid_by,
+        userId,
         'payment',
-        '✅ Expense Share Settled',
-        `${this.currentUser.full_name} settled their share for "${targetExpense.title}".`
+        '✅ Expense Share Confirmed',
+        `${this.currentUser.full_name} confirmed your ₹${shareAmount} payment for "${targetExpense.title}".`
       );
     }
+  },
+
+  async rejectExpenseShareClaim(expenseId: string, userId: string) {
+    const targetExpense = this.expenses.find(e => e.id === expenseId);
+    const participant = targetExpense?.participants.find(p => p.user_id === userId);
+    const shareAmount = participant?.share_amount || 0;
+
+    this.expenses = this.expenses.map(exp => {
+      if (exp.id !== expenseId) return exp;
+      return {
+        ...exp,
+        participants: exp.participants.map(p => 
+          p.user_id === userId 
+            ? { ...p, status: 'pending', claimed_at: null } 
+            : p
+        )
+      };
+    });
+
+    saveState('expenses', this.expenses);
+    notifyListeners();
+
+    await rejectExpenseShareClaimInSupabase(expenseId, userId);
+
+    if (targetExpense && this.currentUser) {
+      this.addNotification(
+        userId,
+        'payment',
+        '❌ Split Share Not Confirmed',
+        `${this.currentUser.full_name} indicated they did not receive your ₹${shareAmount} payment for "${targetExpense.title}".`
+      );
+    }
+  },
+
+  async settleExpenseShare(expenseId: string, userId: string) {
+    return this.confirmExpenseShare(expenseId, userId);
   },
 
   // Plans & Polls

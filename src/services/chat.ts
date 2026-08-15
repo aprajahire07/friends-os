@@ -155,6 +155,34 @@ export async function markCategoryAsReadInSupabase(userId: string, category: Cha
   }
 }
 
+export async function markAllCategoriesAsReadInSupabase(userId: string): Promise<boolean> {
+  if (!isSupabaseConfigured || !supabase || !userId) return false;
+
+  try {
+    const now = new Date().toISOString();
+    const categories: ChatCategory[] = ['general', 'money', 'college', 'plans', 'memories', 'random'];
+    const rows = categories.map(category => ({
+      user_id: userId,
+      category,
+      last_read_at: now
+    }));
+
+    const { error } = await supabase
+      .from('message_reads')
+      .upsert(rows, { onConflict: 'user_id,category' });
+
+    if (error) {
+      console.warn('Error marking all categories as read in Supabase:', error.message);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.warn('Failed to mark all categories as read in Supabase:', err);
+    return false;
+  }
+}
+
 export function subscribeToRealtimeMessages(onNewMessage: (msg: any) => void) {
   if (!isSupabaseConfigured || !supabase) return () => {};
 

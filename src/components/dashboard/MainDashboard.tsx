@@ -32,7 +32,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
   const user = store.currentUser;
 
   // Real calculations for "What matters RIGHT NOW"
-  const unreadMessagesCount = store.messages.length;
+  const unreadMessagesCount = user ? store.getUnreadMessageCount() : 0;
   const unreadSnapsCount = store.snaps.filter(
     s => s.recipient_id === user.id && s.status !== 'opened' && s.status !== 'expired'
   ).length;
@@ -117,21 +117,28 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
         </div>
 
         <div className="space-y-2.5">
-          {/* Messages */}
-          <div
-            onClick={() => onSelectTab('chat')}
-            className="p-3 bg-slate-950 border border-slate-800/80 hover:border-slate-700 rounded-2xl flex items-center justify-between cursor-pointer transition-colors"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center shrink-0">
-                <MessageSquare className="w-4 h-4" />
+          {/* Messages (Shown ONLY when there are genuine unread messages) */}
+          {unreadMessagesCount > 0 && (
+            <div
+              onClick={() => {
+                appStore.markAllMessagesAsRead();
+                onSelectTab('chat');
+              }}
+              className="p-3 bg-slate-950 border border-indigo-900/60 hover:border-indigo-600/80 rounded-2xl flex items-center justify-between cursor-pointer transition-colors group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center shrink-0">
+                  <MessageSquare className="w-4 h-4" />
+                </div>
+                <span className="text-xs font-bold text-white">
+                  {unreadMessagesCount === 1
+                    ? '1 new message in Group Chat'
+                    : `${unreadMessagesCount} new messages in Group Chat`}
+                </span>
               </div>
-              <span className="text-xs font-bold text-white">
-                {unreadMessagesCount > 0 ? `${unreadMessagesCount} messages in Group Chat` : 'Group chat is active'}
-              </span>
+              <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-slate-300" />
             </div>
-            <ChevronRight className="w-4 h-4 text-slate-500" />
-          </div>
+          )}
 
           {/* Snaps */}
           <div

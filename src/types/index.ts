@@ -69,6 +69,14 @@ export interface ChatMessage {
   sender?: Profile;
 }
 
+export interface ExpenseParticipant {
+  user_id: string;
+  share_amount: number;
+  status: 'pending' | 'payment_claimed' | 'settled';
+  claimed_at?: string | null;
+  settled_at?: string | null;
+}
+
 export interface GroupExpense {
   id: string;
   group_id: string;
@@ -76,11 +84,7 @@ export interface GroupExpense {
   title: string;
   total_amount: number;
   category: string;
-  participants: {
-    user_id: string;
-    share_amount: number;
-    status: 'pending' | 'settled';
-  }[];
+  participants: ExpenseParticipant[];
   created_at: string;
   payer_profile?: Profile;
 }
@@ -91,8 +95,9 @@ export interface PersonalLoan {
   borrower_id: string;
   amount: number;
   reason: string;
-  category: 'Auto' | 'Bus' | 'Metro' | 'Food' | 'Cash' | 'Other';
-  status: 'pending' | 'paid';
+  category: 'Auto' | 'Bus' | 'Metro' | 'Food' | 'Cash' | 'Other' | string;
+  status: 'pending' | 'payment_claimed' | 'paid';
+  claimed_at?: string | null;
   paid_at?: string | null;
   created_at: string;
   lender_profile?: Profile;
@@ -272,12 +277,51 @@ export interface SnapMessage {
 export interface AppNotification {
   id: string;
   user_id: string;
-  type: 'message' | 'mention' | 'snap' | 'expense' | 'loan' | 'plan' | 'birthday' | 'borrowed' | 'college';
+  type: 'message' | 'mention' | 'snap' | 'expense' | 'loan' | 'plan' | 'birthday' | 'borrowed' | 'college' | 'exam_paper';
   title: string;
   message: string;
   link?: string;
   is_read: boolean;
   created_at: string;
+}
+
+export type ExamType = 
+  | 'TAE-1' 
+  | 'TAE-2' 
+  | 'CAE' 
+  | 'Mid Semester' 
+  | 'End Semester' 
+  | 'Unit Test' 
+  | 'Class Test' 
+  | 'Assignment' 
+  | 'Question Bank' 
+  | 'Other';
+
+export interface ExamSubject {
+  id: string;
+  name: string;
+  code: string; // 'DSA' | 'DMGT' | 'CYBER_LAWS' | 'EEIM' | 'HE' | 'PROJECT_1' | 'OE_1' | 'APTITUDE'
+  description?: string;
+  order_index: number;
+  created_at: string;
+  papers_count?: number;
+}
+
+export interface ExamPaper {
+  id: string;
+  subject_id: string;
+  title: string;
+  exam_type: string;
+  academic_year: string;
+  file_path: string;
+  file_name: string;
+  file_type: string;
+  file_size: number;
+  uploaded_by: string; // user profile UUID
+  created_at: string;
+  updated_at: string;
+  subject?: ExamSubject;
+  uploader_profile?: Profile;
 }
 
 export type NavigationTab = 
@@ -292,6 +336,8 @@ export type NavigationTab =
   | 'dates'
   | 'college'
   | 'attendance'
+  | 'exam_papers'
   | 'notifications'
   | 'profile'
+  | 'me'
   | 'admin';

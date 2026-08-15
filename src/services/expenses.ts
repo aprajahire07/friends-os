@@ -181,7 +181,29 @@ export async function addLoanToSupabase(loan: Partial<PersonalLoan>): Promise<Pe
   }
 }
 
-export async function settleLoanInSupabase(loanId: string): Promise<boolean> {
+export async function claimLoanPaymentInSupabase(loanId: string): Promise<boolean> {
+  if (!isSupabaseConfigured || !supabase) return false;
+
+  try {
+    const { error } = await supabase
+      .from('loans')
+      .update({
+        status: 'payment_claimed'
+      })
+      .eq('id', loanId);
+
+    if (error) {
+      console.error('Error claiming loan payment:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('Failed to claim loan payment:', err);
+    return false;
+  }
+}
+
+export async function confirmLoanPaymentInSupabase(loanId: string): Promise<boolean> {
   if (!isSupabaseConfigured || !supabase) return false;
 
   try {
@@ -194,12 +216,61 @@ export async function settleLoanInSupabase(loanId: string): Promise<boolean> {
       .eq('id', loanId);
 
     if (error) {
-      console.error('Error settling loan:', error.message);
+      console.error('Error confirming loan payment:', error.message);
       return false;
     }
     return true;
   } catch (err) {
-    console.error('Failed to settle loan:', err);
+    console.error('Failed to confirm loan payment:', err);
+    return false;
+  }
+}
+
+export async function rejectLoanPaymentClaimInSupabase(loanId: string): Promise<boolean> {
+  if (!isSupabaseConfigured || !supabase) return false;
+
+  try {
+    const { error } = await supabase
+      .from('loans')
+      .update({
+        status: 'pending'
+      })
+      .eq('id', loanId);
+
+    if (error) {
+      console.error('Error rejecting loan payment claim:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('Failed to reject loan payment claim:', err);
+    return false;
+  }
+}
+
+export async function settleLoanInSupabase(loanId: string): Promise<boolean> {
+  return confirmLoanPaymentInSupabase(loanId);
+}
+
+export async function claimExpenseShareInSupabase(expenseId: string, userId: string): Promise<boolean> {
+  if (!isSupabaseConfigured || !supabase) return false;
+
+  try {
+    const { error } = await supabase
+      .from('expense_participants')
+      .update({
+        status: 'payment_claimed'
+      })
+      .eq('expense_id', expenseId)
+      .eq('user_id', userId);
+
+    if (error) {
+      console.error('Error claiming expense share:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('Failed to claim expense share:', err);
     return false;
   }
 }
@@ -224,6 +295,30 @@ export async function settleExpenseShareInSupabase(expenseId: string, userId: st
     return true;
   } catch (err) {
     console.error('Failed to settle expense share:', err);
+    return false;
+  }
+}
+
+export async function rejectExpenseShareClaimInSupabase(expenseId: string, userId: string): Promise<boolean> {
+  if (!isSupabaseConfigured || !supabase) return false;
+
+  try {
+    const { error } = await supabase
+      .from('expense_participants')
+      .update({
+        status: 'pending',
+        paid_status: false
+      })
+      .eq('expense_id', expenseId)
+      .eq('user_id', userId);
+
+    if (error) {
+      console.error('Error rejecting expense share claim:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('Failed to reject expense share claim:', err);
     return false;
   }
 }

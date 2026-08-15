@@ -1,6 +1,6 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
-export type StorageBucket = 'avatars' | 'memories' | 'chat-media' | 'payment-qr' | 'snaps';
+export type StorageBucket = 'avatars' | 'memories' | 'chat-media' | 'payment-qr' | 'snaps' | 'exam-papers';
 
 export interface FileValidationResult {
   valid: boolean;
@@ -13,7 +13,7 @@ const signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
 
 const MAX_IMAGE_SIZE = 15 * 1024 * 1024; // 15MB
 const MAX_VIDEO_SIZE = 50 * 1024 * 1024; // 50MB
-const MAX_DOCUMENT_SIZE = 25 * 1024 * 1024; // 25MB
+const MAX_DOCUMENT_SIZE = 35 * 1024 * 1024; // 35MB
 
 const ALLOWED_IMAGE_TYPES = [
   'image/jpeg',

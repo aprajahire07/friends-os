@@ -34,6 +34,7 @@ export const AddMoneyConversationalModal: React.FC<AddMoneyConversationalModalPr
     preselectedFriend ? preselectedFriend.id : (friends[0]?.id || '')
   );
   const [reasonStr, setReasonStr] = useState<string>('Auto');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!isOpen) return null;
 
@@ -56,42 +57,51 @@ export const AddMoneyConversationalModal: React.FC<AddMoneyConversationalModalPr
     }
   };
 
-  const handleSubmitGroupPaid = (e: React.FormEvent) => {
+  const handleSubmitGroupPaid = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+
     const total = parseFloat(amountStr);
     if (isNaN(total) || total <= 0) {
       showToast('Invalid Amount', 'Please enter a valid amount', 'error');
       return;
     }
 
-    const allParticipantIds = Array.from(new Set([currentUser.id, ...selectedFriendIds]));
+    setIsSubmitting(true);
+    try {
+      const allParticipantIds = Array.from(new Set([currentUser.id, ...selectedFriendIds]));
 
-    appStore.addGroupExpense(
-      `${category} Treat / Bill`,
-      total,
-      category.split(' ')[1] || category,
-      allParticipantIds
-    );
+      await appStore.addGroupExpense(
+        `${category} Treat / Bill`,
+        total,
+        category.split(' ')[1] || category,
+        allParticipantIds
+      );
 
-    const friendNames = selectedFriendIds
-      .map(id => appStore.profiles.find(p => p.id === id)?.full_name.split(' ')[0])
-      .filter(Boolean)
-      .join(', ');
+      const friendNames = selectedFriendIds
+        .map(id => appStore.profiles.find(p => p.id === id)?.full_name.split(' ')[0])
+        .filter(Boolean)
+        .join(', ');
 
-    const share = Math.round((total / allParticipantIds.length) * 100) / 100;
+      const share = Math.round((total / allParticipantIds.length) * 100) / 100;
 
-    showToast(
-      'Money Added 💰',
-      `Split ₹${total} among ${allParticipantIds.length} people (₹${share} each for ${friendNames})`,
-      'success'
-    );
+      showToast(
+        'Money Added 💰',
+        `Split ₹${total} among ${allParticipantIds.length} people (₹${share} each for ${friendNames})`,
+        'success'
+      );
 
-    onClose();
-    resetState();
+      onClose();
+      resetState();
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleSubmitGaveMoney = (e: React.FormEvent) => {
+  const handleSubmitGaveMoney = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+
     const amount = parseFloat(amountStr);
     if (isNaN(amount) || amount <= 0 || !singleFriendId) {
       showToast('Invalid Details', 'Please select a friend and amount', 'error');
@@ -100,28 +110,35 @@ export const AddMoneyConversationalModal: React.FC<AddMoneyConversationalModalPr
 
     const friendObj = appStore.profiles.find(p => p.id === singleFriendId);
 
-    if (step === 'gave_money') {
-      // You gave friend money => Friend owes you
-      appStore.addPersonalLoan(
-        singleFriendId,
-        amount,
-        reasonStr,
-        'Cash'
-      );
-      showToast('Added 💰', `${friendObj?.full_name.split(' ')[0]} now owes you ₹${amount}`, 'success');
-    } else {
-      // Someone gave you money => You owe friend
-      appStore.addPersonalLoan(
-        singleFriendId,
-        amount,
-        reasonStr,
-        'Cash'
-      );
-      showToast('Added 💰', `You now owe ${friendObj?.full_name.split(' ')[0]} ₹${amount}`, 'info');
-    }
+    setIsSubmitting(true);
+    try {
+      if (step === 'gave_money') {
+        // You gave friend money => Friend owes you (Lender: currentUser, Borrower: singleFriendId)
+        await appStore.addPersonalLoan(
+          singleFriendId,
+          amount,
+          reasonStr,
+          'Cash',
+          currentUser.id
+        );
+        showToast('Added 💰', `${friendObj?.full_name.split(' ')[0]} now owes you ₹${amount}`, 'success');
+      } else {
+        // Someone gave you money => You owe friend (Lender: singleFriendId, Borrower: currentUser)
+        await appStore.addPersonalLoan(
+          currentUser.id,
+          amount,
+          reasonStr,
+          'Cash',
+          singleFriendId
+        );
+        showToast('Added 💰', `You now owe ${friendObj?.full_name.split(' ')[0]} ₹${amount}`, 'info');
+      }
 
-    onClose();
-    resetState();
+      onClose();
+      resetState();
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const resetState = () => {
@@ -282,9 +299,10 @@ export const AddMoneyConversationalModal: React.FC<AddMoneyConversationalModalPr
 
             <button
               type="submit"
-              className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/30 transition-all active:scale-95"
+              disabled={isSubmitting}
+              className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs shadow-lg shadow-emerald-600/30 transition-all active:scale-95 flex items-center justify-center gap-2"
             >
-              Save & Split Expense
+              <span>{isSubmitting ? 'Saving Expense...' : 'Save & Split Expense'}</span>
             </button>
           </form>
         )}
@@ -353,9 +371,10 @@ export const AddMoneyConversationalModal: React.FC<AddMoneyConversationalModalPr
 
             <button
               type="submit"
-              className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/30 transition-all active:scale-95"
+              disabled={isSubmitting}
+              className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold text-xs shadow-lg shadow-indigo-600/30 transition-all active:scale-95 flex items-center justify-center gap-2"
             >
-              Save Record
+              <span>{isSubmitting ? 'Saving Record...' : 'Save Record'}</span>
             </button>
           </form>
         )}
