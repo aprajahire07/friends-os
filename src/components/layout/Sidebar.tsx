@@ -10,7 +10,8 @@ import {
   Camera, 
   Images, 
   Backpack, 
-  GraduationCap 
+  GraduationCap,
+  BookOpen 
 } from 'lucide-react';
 import { appStore, useAppStore } from '../../lib/store';
 
@@ -48,6 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'plans', label: 'Plans', icon: CalendarDays, badge: null },
     { id: 'snaps', label: 'Snaps', icon: Camera, badge: unopenedSnapsCount > 0 ? unopenedSnapsCount : null },
     { id: 'college', label: 'College & Attendance', icon: GraduationCap, badge: null },
+    { id: 'exam_papers', label: 'Exam Papers', icon: BookOpen, badge: null },
     { id: 'memories', label: 'Memories', icon: Images, badge: null },
     { id: 'borrowed', label: 'Borrowed Items', icon: Backpack, badge: null },
     { id: 'me', label: 'Me', icon: User, badge: null },

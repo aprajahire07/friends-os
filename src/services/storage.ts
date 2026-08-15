@@ -36,6 +36,8 @@ const ALLOWED_DOCUMENT_TYPES = [
   'application/pdf',
   'application/msword',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   'text/plain',
   'application/zip'
 ];
@@ -61,31 +63,40 @@ export function validateUploadFile(
     fileType = 'image';
   } else if (ALLOWED_VIDEO_TYPES.includes(mimeType) || ['mp4', 'webm', 'mov', 'mkv'].includes(ext)) {
     fileType = 'video';
-  } else if (ALLOWED_DOCUMENT_TYPES.includes(mimeType) || ['pdf', 'doc', 'docx', 'txt', 'zip'].includes(ext)) {
+  } else if (ALLOWED_DOCUMENT_TYPES.includes(mimeType) || ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'txt', 'zip'].includes(ext)) {
     fileType = 'document';
   }
 
-  if (fileType === 'unknown' || !allowedCategories.includes(fileType)) {
-    const categoryLabels = allowedCategories.map(c => c === 'image' ? 'images (JPG, PNG, WEBP)' : c === 'video' ? 'videos (MP4, MOV)' : 'documents (PDF, DOC)').join(', ');
+  if (!allowedCategories.includes(fileType as any)) {
     return {
       valid: false,
-      error: `Unsupported file format. Please upload: ${categoryLabels}`,
+      error: `File type not supported (${ext || mimeType || 'unknown'}). Please choose a valid image, video, or PDF/document.`,
       fileType
     };
   }
 
-  // Size checks
+  // Size limit check
   if (fileType === 'image' && file.size > MAX_IMAGE_SIZE) {
-    return { valid: false, error: `Image is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Limit is 15MB.`, fileType };
+    return { valid: false, error: 'Image size exceeds maximum limit of 15MB.', fileType };
   }
   if (fileType === 'video' && file.size > MAX_VIDEO_SIZE) {
-    return { valid: false, error: `Video is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Limit is 50MB.`, fileType };
+    return { valid: false, error: 'Video size exceeds maximum limit of 50MB.', fileType };
   }
   if (fileType === 'document' && file.size > MAX_DOCUMENT_SIZE) {
-    return { valid: false, error: `File is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Limit is 25MB.`, fileType };
+    return { valid: false, error: 'Document size exceeds maximum limit of 35MB.', fileType };
   }
 
   return { valid: true, fileType };
+}
+
+/**
+ * Convenient alias for validateUploadFile
+ */
+export function validateFile(
+  file: File,
+  allowedCategory: 'image' | 'video' | 'document' = 'document'
+): FileValidationResult {
+  return validateUploadFile(file, [allowedCategory]);
 }
 
 /**

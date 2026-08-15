@@ -18,8 +18,8 @@ import {
   AppNotification,
   ChatCategory,
   FriendGroup,
-  ExamSubject,
   ExamPaper,
+  ExamSubject,
   ExamType
 } from '../types';
 import { resolveCollegeId, GHRCE_COLLEGE_ID, SKILLTECH_COLLEGE_ID } from './timetables';
@@ -55,11 +55,10 @@ import { fetchUserGroup } from '../services/groups';
 import { 
   fetchExamSubjectsFromSupabase, 
   fetchExamPapersFromSupabase, 
+  uploadExamPaperFile, 
   createExamPaperInSupabase, 
   updateExamPaperInSupabase, 
-  deleteExamPaperInSupabase, 
-  uploadExamPaperFile,
-  DEFAULT_EXAM_SUBJECTS 
+  deleteExamPaperInSupabase 
 } from '../services/examPapers';
 import { 
   fetchMemoryLockSettingsFromSupabase, 
@@ -123,14 +122,14 @@ export const appStore = {
   notifications: loadInitialState<AppNotification[]>('notifications', []),
   messageReads: loadInitialState<Record<string, string>>('messageReads', {}),
   
+  // Exam Papers & Subject Categories
+  examSubjects: loadInitialState<ExamSubject[]>('examSubjects', []),
+  examPapers: loadInitialState<ExamPaper[]>('examPapers', []),
+  
   // Memories Lock & Security (Admin controlled)
   memoriesLocked: loadInitialState<boolean>('memoriesLocked', false),
   memoriesPasscodeHash: loadInitialState<string>('memoriesPasscodeHash', DEFAULT_PASSCODE_HASH),
   sessionUnlockedMemories: false,
-
-  // Exam Papers & Subjects
-  examSubjects: loadInitialState<ExamSubject[]>('examSubjects', []),
-  examPapers: loadInitialState<ExamPaper[]>('examPapers', []),
 
   subscribe(listener: Listener) {
     listeners.add(listener);
@@ -221,7 +220,7 @@ export const appStore = {
       if (remoteReports) this.cancellationReports = remoteReports;
       if (remoteSnaps) this.snaps = remoteSnaps;
       if (remoteNotifications) this.notifications = remoteNotifications;
-      if (remoteExamSubjects) {
+      if (remoteExamSubjects && remoteExamSubjects.length > 0) {
         this.examSubjects = remoteExamSubjects;
         saveState('examSubjects', this.examSubjects);
       }
@@ -424,178 +423,6 @@ export const appStore = {
     } catch (err) {
       console.warn('Error syncing app settings:', err);
     }
-  },
-
-  async syncExamSubjects() {
-    try {
-      const remoteSubjects = await fetchExamSubjectsFromSupabase();
-      if (remoteSubjects && remoteSubjects.length > 0) {
-        this.examSubjects = remoteSubjects;
-        saveState('examSubjects', this.examSubjects);
-        notifyListeners();
-      }
-    } catch (err) {
-      console.warn('Error syncing exam subjects:', err);
-    }
-  },
-
-  async syncExamPapers() {
-    try {
-      const [remoteSubjects, remotePapers] = await Promise.all([
-        fetchExamSubjectsFromSupabase(),
-        fetchExamPapersFromSupabase()
-      ]);
-      if (remoteSubjects && remoteSubjects.length > 0) {
-        this.examSubjects = remoteSubjects;
-        saveState('examSubjects', this.examSubjects);
-      }
-      if (remotePapers) {
-        this.examPapers = remotePapers;
-        saveState('examPapers', this.examPapers);
-      }
-      notifyListeners();
-    } catch (err) {
-      console.warn('Error syncing exam papers:', err);
-    }
-  },
-
-  async uploadExamPaper(
-    paperData: {
-      subject_id: string;
-      title: string;
-      exam_type: string;
-      academic_year: string;
-    },
-    file: File,
-    onProgress?: (percent: number) => void
-  ): Promise<{ success: boolean; paper?: ExamPaper; error?: string }> {
-    if (!this.currentUser) {
-      return { success: false, error: 'You must be logged in to upload papers.' };
-    }
-
-    if (!isUserAdmin(this.currentUser)) {
-      return { success: false, error: 'Access denied. Only the Admin (aprajahire07@gmail.com) can upload exam papers.' };
-    }
-
-    const selectedSubject = this.examSubjects.find(s => s.id === paperData.subject_id);
-    const subjectCode = selectedSubject?.code || 'GENERAL';
-
-    // 1. Upload binary document to Supabase Storage bucket 'exam-papers'
-    const uploadRes = await uploadExamPaperFile(file, subjectCode, paperData.academic_year, onProgress);
-    if (uploadRes.error || !uploadRes.storagePath) {
-      return { success: false, error: uploadRes.error || 'Failed to upload paper to storage.' };
-    }
-
-    // 2. Insert record into Supabase Database table 'exam_papers'
-    const dbRes = await createExamPaperInSupabase({
-      subject_id: paperData.subject_id,
-      title: paperData.title,
-      exam_type: paperData.exam_type,
-      academic_year: paperData.academic_year,
-      file_path: uploadRes.storagePath,
-      file_name: uploadRes.fileName,
-      file_type: uploadRes.fileType,
-      file_size: uploadRes.fileSize,
-      uploaded_by: this.currentUser.id
-    });
-
-    if (dbRes.error || !dbRes.paper) {
-      return { success: false, error: dbRes.error || 'Failed to save paper details.' };
-    }
-
-    // 3. Update local state
-    this.examPapers = [dbRes.paper, ...this.examPapers.filter(p => p.id !== dbRes.paper!.id)];
-    saveState('examPapers', this.examPapers);
-    notifyListeners();
-
-    // 4. Send notification to group friends
-    this.profiles.forEach(p => {
-      if (p.id !== this.currentUser.id) {
-        this.addNotification(
-          p.id,
-          'exam_paper',
-          '📚 New Exam Paper Added',
-          `${selectedSubject?.name || 'Subject'}: ${paperData.title} (${paperData.exam_type} ${paperData.academic_year}) is now available.`,
-          dbRes.paper?.id
-        );
-      }
-    });
-
-    return { success: true, paper: dbRes.paper };
-  },
-
-  async updateExamPaper(
-    paperId: string,
-    updates: {
-      title: string;
-      exam_type: string;
-      academic_year: string;
-      subject_id: string;
-    },
-    newFile?: File | null,
-    onProgress?: (p: number) => void
-  ): Promise<{ success: boolean; paper?: ExamPaper; error?: string }> {
-    if (!this.currentUser) return { success: false, error: 'Not authenticated.' };
-    if (!isUserAdmin(this.currentUser)) {
-      return { success: false, error: 'Only admin can edit exam papers.' };
-    }
-
-    const currentPaper = this.examPapers.find(p => p.id === paperId);
-    let finalFilePath = currentPaper?.file_path;
-    let finalFileName = currentPaper?.file_name;
-    let finalFileType = currentPaper?.file_type;
-    let finalFileSize = currentPaper?.file_size;
-
-    if (newFile) {
-      const selectedSubject = this.examSubjects.find(s => s.id === updates.subject_id);
-      const subjectCode = selectedSubject?.code || 'GENERAL';
-      const uploadRes = await uploadExamPaperFile(newFile, subjectCode, updates.academic_year, onProgress);
-      if (uploadRes.error) {
-        return { success: false, error: uploadRes.error };
-      }
-      finalFilePath = uploadRes.storagePath;
-      finalFileName = uploadRes.fileName;
-      finalFileType = uploadRes.fileType;
-      finalFileSize = uploadRes.fileSize;
-    }
-
-    const res = await updateExamPaperInSupabase(paperId, {
-      ...updates,
-      file_path: finalFilePath,
-      file_name: finalFileName,
-      file_type: finalFileType,
-      file_size: finalFileSize
-    });
-
-    if (res.error || !res.paper) {
-      return { success: false, error: res.error || 'Failed to update paper.' };
-    }
-
-    this.examPapers = this.examPapers.map(p => p.id === paperId ? res.paper! : p);
-    saveState('examPapers', this.examPapers);
-    notifyListeners();
-
-    return { success: true, paper: res.paper };
-  },
-
-  async deleteExamPaper(paperId: string): Promise<{ success: boolean; error?: string }> {
-    if (!this.currentUser) return { success: false, error: 'Not authenticated.' };
-    if (!isUserAdmin(this.currentUser)) {
-      return { success: false, error: 'Only admin can delete exam papers.' };
-    }
-
-    const targetPaper = this.examPapers.find(p => p.id === paperId);
-    const res = await deleteExamPaperInSupabase(paperId, targetPaper?.file_path);
-
-    if (!res.success) {
-      return { success: false, error: res.error || 'Failed to delete paper.' };
-    }
-
-    this.examPapers = this.examPapers.filter(p => p.id !== paperId);
-    saveState('examPapers', this.examPapers);
-    notifyListeners();
-
-    return { success: true };
   },
 
   handleRemoteProfileUpdate(updatedProfile: Profile) {
@@ -1841,6 +1668,126 @@ export const appStore = {
     notifyListeners();
 
     await markNotificationsReadInSupabase(this.currentUser.id);
+  },
+
+  // Exam Papers Actions
+  async syncExamSubjects() {
+    try {
+      const subjects = await fetchExamSubjectsFromSupabase();
+      if (subjects && subjects.length > 0) {
+        this.examSubjects = subjects;
+        saveState('examSubjects', this.examSubjects);
+        notifyListeners();
+      }
+    } catch (e) {
+      console.warn('Error syncing exam subjects:', e);
+    }
+  },
+
+  async syncExamPapers() {
+    try {
+      const papers = await fetchExamPapersFromSupabase();
+      this.examPapers = papers;
+      saveState('examPapers', this.examPapers);
+      notifyListeners();
+    } catch (e) {
+      console.warn('Error syncing exam papers:', e);
+    }
+  },
+
+  async uploadExamPaper(
+    file: File,
+    subjectId: string,
+    title: string,
+    examType: ExamType | string,
+    academicYear: string,
+    onProgress?: (percent: number) => void
+  ): Promise<{ success: boolean; paper?: ExamPaper; error?: string }> {
+    if (!this.currentUser) return { success: false, error: 'User not authenticated' };
+    
+    try {
+      const subject = this.examSubjects.find(s => s.id === subjectId);
+      const subjectCode = subject?.code || 'GENERAL';
+
+      // 1. Upload file to Supabase Storage
+      const uploadRes = await uploadExamPaperFile(file, subjectCode, academicYear, onProgress);
+      if (uploadRes.error || !uploadRes.storagePath) {
+        return { success: false, error: uploadRes.error || 'Failed to upload paper file.' };
+      }
+
+      // 2. Insert record into exam_papers
+      const createRes = await createExamPaperInSupabase({
+        subject_id: subjectId,
+        title,
+        exam_type: examType,
+        academic_year: academicYear,
+        file_path: uploadRes.storagePath,
+        file_name: uploadRes.fileName || file.name,
+        file_type: uploadRes.fileType || file.type || 'application/pdf',
+        file_size: uploadRes.fileSize || file.size,
+        uploaded_by: this.currentUser.id,
+      });
+
+      if (!createRes.paper) {
+        return { success: false, error: createRes.error || 'Failed to save paper metadata in database.' };
+      }
+
+      // 3. Update local state
+      this.examPapers = [createRes.paper, ...this.examPapers];
+      saveState('examPapers', this.examPapers);
+      notifyListeners();
+
+      return { success: true, paper: createRes.paper };
+    } catch (err: any) {
+      console.error('Error uploading exam paper:', err);
+      return { success: false, error: err?.message || 'Upload failed' };
+    }
+  },
+
+  async updateExamPaper(
+    paperId: string,
+    updates: {
+      subject_id?: string;
+      title?: string;
+      exam_type?: ExamType | string;
+      academic_year?: string;
+    }
+  ): Promise<{ success: boolean; paper?: ExamPaper; error?: string }> {
+    try {
+      const updateRes = await updateExamPaperInSupabase(paperId, updates);
+      if (!updateRes.paper) {
+        return { success: false, error: updateRes.error || 'Failed to update exam paper in database.' };
+      }
+
+      this.examPapers = this.examPapers.map(p => p.id === paperId ? { ...p, ...updateRes.paper } : p);
+      saveState('examPapers', this.examPapers);
+      notifyListeners();
+
+      return { success: true, paper: updateRes.paper };
+    } catch (err: any) {
+      console.error('Error updating exam paper:', err);
+      return { success: false, error: err?.message || 'Update failed' };
+    }
+  },
+
+  async deleteExamPaper(paperId: string, filePath?: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      // Find paper in state if filePath not provided
+      const paper = this.examPapers.find(p => p.id === paperId);
+      const targetPath = filePath || paper?.file_path || '';
+
+      const deleteRes = await deleteExamPaperInSupabase(paperId, targetPath);
+      if (deleteRes.success) {
+        this.examPapers = this.examPapers.filter(p => p.id !== paperId);
+        saveState('examPapers', this.examPapers);
+        notifyListeners();
+        return { success: true };
+      }
+      return { success: false, error: deleteRes.error || 'Failed to delete paper' };
+    } catch (err: any) {
+      console.error('Error deleting exam paper:', err);
+      return { success: false, error: err?.message || 'Error deleting exam paper' };
+    }
   }
 };
 

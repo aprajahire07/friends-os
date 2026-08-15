@@ -173,13 +173,6 @@ export function subscribeToAllRealtimeTables(
     )
     .on(
       'postgres_changes',
-      { event: '*', schema: 'public', table: 'app_settings' },
-      () => {
-        appStore.syncAppSettings();
-      }
-    )
-    .on(
-      'postgres_changes',
       { event: '*', schema: 'public', table: 'exam_subjects' },
       () => {
         appStore.syncExamSubjects();
@@ -190,6 +183,13 @@ export function subscribeToAllRealtimeTables(
       { event: '*', schema: 'public', table: 'exam_papers' },
       () => {
         appStore.syncExamPapers();
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'app_settings' },
+      () => {
+        appStore.syncAppSettings();
       }
     )
     .on(
