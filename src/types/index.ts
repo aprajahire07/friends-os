@@ -285,45 +285,6 @@ export interface AppNotification {
   created_at: string;
 }
 
-export type ExamType = 
-  | 'TAE-1'
-  | 'TAE-2'
-  | 'CAE'
-  | 'Mid Semester'
-  | 'End Semester'
-  | 'Unit Test'
-  | 'Class Test'
-  | 'Assignment'
-  | 'Question Bank'
-  | 'Other';
-
-export interface ExamSubject {
-  id: string;
-  name: string;
-  code: string;
-  description?: string;
-  order_index?: number;
-  created_at?: string;
-  papers_count?: number;
-}
-
-export interface ExamPaper {
-  id: string;
-  subject_id: string;
-  title: string;
-  exam_type: ExamType | string;
-  academic_year: string;
-  file_path: string;
-  file_name: string;
-  file_type: string;
-  file_size: number;
-  uploaded_by?: string;
-  created_at: string;
-  updated_at: string;
-  subject?: ExamSubject;
-  uploader_profile?: Profile;
-}
-
 export type NavigationTab = 
   | 'home'
   | 'friends'
@@ -336,7 +297,6 @@ export type NavigationTab =
   | 'dates'
   | 'college'
   | 'attendance'
-  | 'exam_papers'
   | 'notifications'
   | 'profile'
   | 'admin';

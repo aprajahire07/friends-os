@@ -1,6 +1,6 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
-export type StorageBucket = 'avatars' | 'memories' | 'chat-media' | 'payment-qr' | 'snaps' | 'exam-papers';
+export type StorageBucket = 'avatars' | 'memories' | 'chat-media' | 'payment-qr' | 'snaps';
 
 export interface FileValidationResult {
   valid: boolean;

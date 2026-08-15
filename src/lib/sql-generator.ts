@@ -13,6 +13,11 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Cleanup for deprecated/removed features
+DROP TABLE IF EXISTS public.exam_papers CASCADE;
+DROP TABLE IF EXISTS public.exam_subjects CASCADE;
+DELETE FROM storage.buckets WHERE id = 'exam-papers';
+
 -- 1. PROFILES TABLE
 CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -162,13 +167,13 @@ CREATE TABLE IF NOT EXISTS public.message_reads (
 -- 4. EXPENSES & LOANS DATABASE
 CREATE TABLE IF NOT EXISTS public.expenses (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  group_id UUID REFERENCES public.friend_groups(id) ON DELETE CASCADE,
+  group_id UUID REFERENCES public.friend_groups(id) ON DELETE SET NULL,
   paid_by UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   description TEXT,
   amount NUMERIC NOT NULL CHECK (amount > 0),
   expense_date DATE DEFAULT CURRENT_DATE,
-  category TEXT DEFAULT 'other' CHECK (category IN ('food', 'auto', 'bus', 'metro', 'movie', 'cash', 'other', 'Other')),
+  category TEXT NOT NULL DEFAULT 'other',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -177,7 +182,7 @@ CREATE TABLE IF NOT EXISTS public.expense_participants (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   expense_id UUID REFERENCES public.expenses(id) ON DELETE CASCADE,
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
-  share_amount NUMERIC NOT NULL,
+  share_amount NUMERIC NOT NULL CHECK (share_amount >= 0),
   paid_status BOOLEAN DEFAULT false,
   status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'payment_claimed', 'settled')),
   claimed_at TIMESTAMPTZ,
@@ -187,12 +192,12 @@ CREATE TABLE IF NOT EXISTS public.expense_participants (
 
 CREATE TABLE IF NOT EXISTS public.loans (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  group_id UUID REFERENCES public.friend_groups(id) ON DELETE CASCADE,
+  group_id UUID REFERENCES public.friend_groups(id) ON DELETE SET NULL,
   lender_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
   borrower_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
   amount NUMERIC NOT NULL CHECK (amount > 0),
   reason TEXT NOT NULL,
-  category TEXT NOT NULL CHECK (category IN ('food', 'auto', 'bus', 'metro', 'movie', 'cash', 'other', 'Food', 'Auto', 'Bus', 'Metro', 'Cash', 'Other')),
+  category TEXT NOT NULL DEFAULT 'Other',
   loan_date DATE DEFAULT CURRENT_DATE,
   status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'payment_claimed', 'paid')),
   claimed_at TIMESTAMPTZ,
@@ -455,31 +460,6 @@ CREATE TABLE IF NOT EXISTS public.app_settings (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 14. EXAM PAPERS & SUBJECTS
-CREATE TABLE IF NOT EXISTS public.exam_subjects (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL,
-  code TEXT NOT NULL UNIQUE,
-  description TEXT,
-  order_index INT DEFAULT 0,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS public.exam_papers (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  subject_id UUID NOT NULL REFERENCES public.exam_subjects(id) ON DELETE CASCADE,
-  title TEXT NOT NULL,
-  exam_type TEXT NOT NULL,
-  academic_year TEXT NOT NULL,
-  file_path TEXT NOT NULL,
-  file_name TEXT NOT NULL,
-  file_type TEXT NOT NULL,
-  file_size BIGINT NOT NULL DEFAULT 0,
-  uploaded_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
 -- INDEXES
 CREATE INDEX IF NOT EXISTS idx_group_members_group_user ON public.group_members(group_id, user_id);
 CREATE INDEX IF NOT EXISTS idx_messages_group_channel ON public.messages(group_id, channel_id, created_at DESC);
@@ -488,8 +468,6 @@ CREATE INDEX IF NOT EXISTS idx_class_reports_college_date ON public.class_report
 CREATE INDEX IF NOT EXISTS idx_plans_group_date ON public.plans(group_id, plan_date);
 CREATE INDEX IF NOT EXISTS idx_expenses_group ON public.expenses(group_id);
 CREATE INDEX IF NOT EXISTS idx_loans_users ON public.loans(lender_id, borrower_id);
-CREATE INDEX IF NOT EXISTS idx_exam_papers_subject ON public.exam_papers(subject_id);
-CREATE INDEX IF NOT EXISTS idx_exam_papers_year ON public.exam_papers(academic_year);
 CREATE INDEX IF NOT EXISTS idx_snaps_receiver ON public.snaps(receiver_id, status);
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON public.notifications(user_id, is_read);
 
@@ -582,27 +560,36 @@ DROP POLICY IF EXISTS "Message reads insert/update" ON public.message_reads;
 CREATE POLICY "Message reads insert/update" ON public.message_reads FOR ALL USING (auth.uid() = user_id);
 
 DROP POLICY IF EXISTS "Expenses select" ON public.expenses;
-CREATE POLICY "Expenses select" ON public.expenses FOR SELECT USING (auth.role() = 'authenticated');
+CREATE POLICY "Expenses select" ON public.expenses FOR SELECT USING (auth.role() = 'authenticated' OR auth.role() = 'anon' OR auth.uid() IS NOT NULL);
 DROP POLICY IF EXISTS "Expenses insert" ON public.expenses;
-CREATE POLICY "Expenses insert" ON public.expenses FOR INSERT WITH CHECK (auth.uid() = paid_by);
+CREATE POLICY "Expenses insert" ON public.expenses FOR INSERT WITH CHECK (auth.uid() = paid_by OR auth.role() = 'authenticated' OR auth.role() = 'anon');
 DROP POLICY IF EXISTS "Expenses update" ON public.expenses;
-CREATE POLICY "Expenses update" ON public.expenses FOR UPDATE USING (auth.role() = 'authenticated');
+CREATE POLICY "Expenses update" ON public.expenses FOR UPDATE USING (auth.role() = 'authenticated' OR auth.role() = 'anon' OR auth.uid() IS NOT NULL);
+DROP POLICY IF EXISTS "Expenses delete" ON public.expenses;
+CREATE POLICY "Expenses delete" ON public.expenses FOR DELETE USING (auth.uid() = paid_by OR auth.role() = 'authenticated' OR auth.role() = 'anon');
 
 DROP POLICY IF EXISTS "Expense participants select" ON public.expense_participants;
-CREATE POLICY "Expense participants select" ON public.expense_participants FOR SELECT USING (auth.role() = 'authenticated');
+CREATE POLICY "Expense participants select" ON public.expense_participants FOR SELECT USING (auth.role() = 'authenticated' OR auth.role() = 'anon' OR auth.uid() IS NOT NULL);
 DROP POLICY IF EXISTS "Expense participants insert" ON public.expense_participants;
-CREATE POLICY "Expense participants insert" ON public.expense_participants FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "Expense participants insert" ON public.expense_participants FOR INSERT WITH CHECK (auth.role() = 'authenticated' OR auth.role() = 'anon' OR auth.uid() IS NOT NULL);
 DROP POLICY IF EXISTS "Expense participants update" ON public.expense_participants;
-CREATE POLICY "Expense participants update" ON public.expense_participants FOR UPDATE USING (auth.role() = 'authenticated');
+CREATE POLICY "Expense participants update" ON public.expense_participants FOR UPDATE USING (auth.role() = 'authenticated' OR auth.role() = 'anon' OR auth.uid() IS NOT NULL);
+DROP POLICY IF EXISTS "Expense participants delete" ON public.expense_participants;
+CREATE POLICY "Expense participants delete" ON public.expense_participants FOR DELETE USING (auth.role() = 'authenticated' OR auth.role() = 'anon' OR auth.uid() IS NOT NULL);
 
 DROP POLICY IF EXISTS "Loans select" ON public.loans;
-CREATE POLICY "Loans select" ON public.loans FOR SELECT USING (auth.uid() = lender_id OR auth.uid() = borrower_id OR auth.role() = 'authenticated');
+CREATE POLICY "Loans select" ON public.loans FOR SELECT USING (auth.uid() = lender_id OR auth.uid() = borrower_id OR auth.role() = 'authenticated' OR auth.role() = 'anon');
 DROP POLICY IF EXISTS "Loans insert" ON public.loans;
-CREATE POLICY "Loans insert" ON public.loans FOR INSERT WITH CHECK (auth.uid() = lender_id OR auth.uid() = borrower_id);
+CREATE POLICY "Loans insert" ON public.loans FOR INSERT WITH CHECK (auth.uid() = lender_id OR auth.uid() = borrower_id OR auth.role() = 'authenticated' OR auth.role() = 'anon');
 DROP POLICY IF EXISTS "Loans update" ON public.loans;
-CREATE POLICY "Loans update" ON public.loans FOR UPDATE USING (auth.uid() = lender_id OR auth.uid() = borrower_id);
+CREATE POLICY "Loans update" ON public.loans FOR UPDATE USING (auth.uid() = lender_id OR auth.uid() = borrower_id OR auth.role() = 'authenticated' OR auth.role() = 'anon');
 DROP POLICY IF EXISTS "Loans delete" ON public.loans;
-CREATE POLICY "Loans delete" ON public.loans FOR DELETE USING (auth.uid() = lender_id OR auth.uid() = borrower_id);
+CREATE POLICY "Loans delete" ON public.loans FOR DELETE USING (auth.uid() = lender_id OR auth.uid() = borrower_id OR auth.role() = 'authenticated' OR auth.role() = 'anon');
+
+DROP POLICY IF EXISTS "Loan payments select" ON public.loan_payments;
+CREATE POLICY "Loan payments select" ON public.loan_payments FOR SELECT USING (auth.role() = 'authenticated' OR auth.role() = 'anon' OR auth.uid() IS NOT NULL);
+DROP POLICY IF EXISTS "Loan payments insert" ON public.loan_payments;
+CREATE POLICY "Loan payments insert" ON public.loan_payments FOR INSERT WITH CHECK (auth.uid() = paid_by OR auth.role() = 'authenticated' OR auth.role() = 'anon');
 
 DROP POLICY IF EXISTS "Payment QR select" ON public.payment_qr;
 CREATE POLICY "Payment QR select" ON public.payment_qr FOR SELECT USING (auth.role() = 'authenticated');
@@ -689,77 +676,6 @@ CREATE POLICY "App settings read" ON public.app_settings FOR SELECT USING (true)
 DROP POLICY IF EXISTS "App settings write" ON public.app_settings;
 CREATE POLICY "App settings write" ON public.app_settings FOR ALL USING (auth.role() = 'authenticated');
 
--- 14. EXAM PAPERS & SUBJECTS POLICIES
-DROP POLICY IF EXISTS "Exam subjects select" ON public.exam_subjects;
-CREATE POLICY "Exam subjects select" ON public.exam_subjects FOR SELECT USING (true);
-
-DROP POLICY IF EXISTS "Exam subjects admin insert" ON public.exam_subjects;
-CREATE POLICY "Exam subjects admin insert" ON public.exam_subjects FOR INSERT WITH CHECK (
-  auth.role() = 'authenticated' AND (
-    (auth.jwt() ->> 'email') = 'aprajahire07@gmail.com' OR
-    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND email = 'aprajahire07@gmail.com')
-  )
-);
-
-DROP POLICY IF EXISTS "Exam subjects admin update" ON public.exam_subjects;
-CREATE POLICY "Exam subjects admin update" ON public.exam_subjects FOR UPDATE USING (
-  auth.role() = 'authenticated' AND (
-    (auth.jwt() ->> 'email') = 'aprajahire07@gmail.com' OR
-    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND email = 'aprajahire07@gmail.com')
-  )
-);
-
-DROP POLICY IF EXISTS "Exam subjects admin delete" ON public.exam_subjects;
-CREATE POLICY "Exam subjects admin delete" ON public.exam_subjects FOR DELETE USING (
-  auth.role() = 'authenticated' AND (
-    (auth.jwt() ->> 'email') = 'aprajahire07@gmail.com' OR
-    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND email = 'aprajahire07@gmail.com')
-  )
-);
-
--- EXAM PAPERS RLS (SELECT for all authenticated, INSERT/UPDATE/DELETE strictly for Admin)
-DROP POLICY IF EXISTS "Exam papers select" ON public.exam_papers;
-CREATE POLICY "Exam papers select" ON public.exam_papers FOR SELECT USING (auth.role() = 'authenticated');
-
-DROP POLICY IF EXISTS "Exam papers admin insert" ON public.exam_papers;
-CREATE POLICY "Exam papers admin insert" ON public.exam_papers FOR INSERT WITH CHECK (
-  auth.role() = 'authenticated' AND (
-    (auth.jwt() ->> 'email') = 'aprajahire07@gmail.com' OR
-    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND email = 'aprajahire07@gmail.com')
-  )
-);
-
-DROP POLICY IF EXISTS "Exam papers admin update" ON public.exam_papers;
-CREATE POLICY "Exam papers admin update" ON public.exam_papers FOR UPDATE USING (
-  auth.role() = 'authenticated' AND (
-    (auth.jwt() ->> 'email') = 'aprajahire07@gmail.com' OR
-    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND email = 'aprajahire07@gmail.com')
-  )
-);
-
-DROP POLICY IF EXISTS "Exam papers admin delete" ON public.exam_papers;
-CREATE POLICY "Exam papers admin delete" ON public.exam_papers FOR DELETE USING (
-  auth.role() = 'authenticated' AND (
-    (auth.jwt() ->> 'email') = 'aprajahire07@gmail.com' OR
-    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND email = 'aprajahire07@gmail.com')
-  )
-);
-
--- SEED THE 8 CURRENT SEMESTER EXAM SUBJECTS
-INSERT INTO public.exam_subjects (name, code, description, order_index) VALUES
-  ('Data Structures and Algorithms', 'DSA', 'Arrays, linked lists, trees, graphs, sorting, searching & algorithmic complexity analysis', 1),
-  ('Discrete Mathematics and Graph Theory', 'DMGT', 'Set theory, propositional logic, relations, combinatorics, trees & graph theory', 2),
-  ('Multidisciplinary Minor-1 (Cyber Laws)', 'CYBER_LAWS', 'Cyber crimes, Indian IT Act, intellectual property rights & digital ethics', 3),
-  ('Engineering Economics and Industrial Management', 'EEIM', 'Cost estimation, financial viability, project management & organizational strategy', 4),
-  ('Human Elective', 'HE', 'Human values, behavioral psychology, professional ethics & social awareness', 5),
-  ('Project-1', 'PROJECT_1', 'Capstone project planning, architectural specifications & milestone reports', 6),
-  ('Open Elective-1', 'OE_1', 'Interdisciplinary domain coursework, semester problem sets & evaluations', 7),
-  ('Aptitude', 'APTITUDE', 'Quantitative aptitude, logical reasoning, data interpretation & verbal skills', 8)
-ON CONFLICT (code) DO UPDATE SET
-  name = EXCLUDED.name,
-  description = EXCLUDED.description,
-  order_index = EXCLUDED.order_index;
-
 -- Default Seed for Memories Lock (Unlocked by default, default passcode 0000 sha256)
 INSERT INTO public.app_settings (key, value)
 VALUES ('memories_lock', '{"locked": false, "passcode_hash": "4a7d1ed414474e4033ac29ccb8653d9b"}'::jsonb)
@@ -785,8 +701,6 @@ ALTER TABLE public.snaps REPLICA IDENTITY FULL;
 ALTER TABLE public.notifications REPLICA IDENTITY FULL;
 ALTER TABLE public.friendships REPLICA IDENTITY FULL;
 ALTER TABLE public.app_settings REPLICA IDENTITY FULL;
-ALTER TABLE public.exam_subjects REPLICA IDENTITY FULL;
-ALTER TABLE public.exam_papers REPLICA IDENTITY FULL;
 
 -- ENABLE REALTIME FOR ALL FRIEND OS TABLES
 DO $
@@ -819,9 +733,7 @@ BEGIN
       public.class_reports,
       public.snaps,
       public.notifications,
-      public.app_settings,
-      public.exam_subjects,
-      public.exam_papers;
+      public.app_settings;
   EXCEPTION
     WHEN duplicate_object THEN NULL;
     WHEN others THEN NULL;
@@ -834,8 +746,7 @@ INSERT INTO storage.buckets (id, name, public) VALUES
   ('memories', 'memories', true),
   ('chat-media', 'chat-media', true),
   ('payment-qr', 'payment-qr', true),
-  ('snaps', 'snaps', false),
-  ('exam-papers', 'exam-papers', false)
+  ('snaps', 'snaps', false)
 ON CONFLICT (id) DO NOTHING;
 
 -- STORAGE POLICIES
@@ -861,34 +772,4 @@ CREATE POLICY "Auth Upload Payment QR" ON storage.objects FOR INSERT WITH CHECK 
 
 DROP POLICY IF EXISTS "Private Snaps Access" ON storage.objects;
 CREATE POLICY "Private Snaps Access" ON storage.objects FOR ALL USING (bucket_id = 'snaps' AND auth.role() = 'authenticated');
-
--- EXAM PAPERS STORAGE POLICIES (All authenticated users can read/download, only Admin can upload/delete)
-DROP POLICY IF EXISTS "Auth Read Exam Papers" ON storage.objects;
-CREATE POLICY "Auth Read Exam Papers" ON storage.objects FOR SELECT USING (
-  bucket_id = 'exam-papers' AND auth.role() = 'authenticated'
-);
-
-DROP POLICY IF EXISTS "Admin Upload Exam Papers" ON storage.objects;
-CREATE POLICY "Admin Upload Exam Papers" ON storage.objects FOR INSERT WITH CHECK (
-  bucket_id = 'exam-papers' AND auth.role() = 'authenticated' AND (
-    (auth.jwt() ->> 'email') = 'aprajahire07@gmail.com' OR
-    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND email = 'aprajahire07@gmail.com')
-  )
-);
-
-DROP POLICY IF EXISTS "Admin Update Exam Papers" ON storage.objects;
-CREATE POLICY "Admin Update Exam Papers" ON storage.objects FOR UPDATE USING (
-  bucket_id = 'exam-papers' AND auth.role() = 'authenticated' AND (
-    (auth.jwt() ->> 'email') = 'aprajahire07@gmail.com' OR
-    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND email = 'aprajahire07@gmail.com')
-  )
-);
-
-DROP POLICY IF EXISTS "Admin Delete Exam Papers" ON storage.objects;
-CREATE POLICY "Admin Delete Exam Papers" ON storage.objects FOR DELETE USING (
-  bucket_id = 'exam-papers' AND auth.role() = 'authenticated' AND (
-    (auth.jwt() ->> 'email') = 'aprajahire07@gmail.com' OR
-    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND email = 'aprajahire07@gmail.com')
-  )
-);
 `;

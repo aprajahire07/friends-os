@@ -9,8 +9,7 @@ import {
   ChevronRight, 
   Sparkles,
   Images,
-  ArrowUpRight,
-  BookOpen
+  ArrowUpRight
 } from 'lucide-react';
 import { appStore, useAppStore } from '../../lib/store';
 import { NavigationTab, Profile } from '../../types';
@@ -205,25 +204,6 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
               </span>
             </div>
             <ChevronRight className="w-4 h-4 text-slate-500" />
-          </div>
-
-          {/* Exam Papers Resource Hub */}
-          <div
-            onClick={() => onSelectTab('exam_papers')}
-            className="p-3 bg-slate-950 border border-indigo-950/60 hover:border-indigo-600/80 rounded-2xl flex items-center justify-between cursor-pointer transition-colors group"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center shrink-0">
-                <BookOpen className="w-4 h-4" />
-              </div>
-              <div>
-                <span className="text-xs font-bold text-white group-hover:text-indigo-300 transition-colors">
-                  📚 Exam Papers & Question Bank
-                </span>
-                <p className="text-[10px] text-slate-400">Previous semester papers & study resources</p>
-              </div>
-            </div>
-            <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-slate-300" />
           </div>
         </div>
       </div>

@@ -4,6 +4,7 @@ import {
   GroupMember, 
   ChatMessage, 
   GroupExpense, 
+  ExpenseParticipant,
   PersonalLoan, 
   GroupPlan, 
   PlanPoll,
@@ -17,10 +18,7 @@ import {
   SnapMessage, 
   AppNotification,
   ChatCategory,
-  FriendGroup,
-  ExamPaper,
-  ExamSubject,
-  ExamType
+  FriendGroup
 } from '../types';
 import { resolveCollegeId, GHRCE_COLLEGE_ID, SKILLTECH_COLLEGE_ID } from './timetables';
 import { supabase, isSupabaseConfigured } from './supabase';
@@ -35,8 +33,11 @@ import {
 import { 
   fetchExpensesFromSupabase, 
   addExpenseToSupabase, 
+  updateExpenseInSupabase,
+  deleteExpenseFromSupabase,
   fetchLoansFromSupabase, 
   addLoanToSupabase, 
+  deleteLoanFromSupabase,
   claimLoanPaymentInSupabase,
   confirmLoanPaymentInSupabase, 
   rejectLoanPaymentClaimInSupabase,
@@ -52,14 +53,6 @@ import { fetchDateAttendanceFromSupabase, markDateAttendanceInSupabase, fetchCla
 import { fetchSnapsFromSupabase, sendSnapToSupabase, openSnapInSupabase, destroySnapInSupabase } from '../services/snaps';
 import { fetchNotificationsFromSupabase, addNotificationToSupabase, markNotificationsReadInSupabase } from '../services/notifications';
 import { fetchUserGroup } from '../services/groups';
-import { 
-  fetchExamSubjectsFromSupabase, 
-  fetchExamPapersFromSupabase, 
-  uploadExamPaperFile, 
-  createExamPaperInSupabase, 
-  updateExamPaperInSupabase, 
-  deleteExamPaperInSupabase 
-} from '../services/examPapers';
 import { 
   fetchMemoryLockSettingsFromSupabase, 
   updateMemoryLockInSupabase, 
@@ -122,10 +115,6 @@ export const appStore = {
   notifications: loadInitialState<AppNotification[]>('notifications', []),
   messageReads: loadInitialState<Record<string, string>>('messageReads', {}),
   
-  // Exam Papers & Subject Categories
-  examSubjects: loadInitialState<ExamSubject[]>('examSubjects', []),
-  examPapers: loadInitialState<ExamPaper[]>('examPapers', []),
-  
   // Memories Lock & Security (Admin controlled)
   memoriesLocked: loadInitialState<boolean>('memoriesLocked', false),
   memoriesPasscodeHash: loadInitialState<string>('memoriesPasscodeHash', DEFAULT_PASSCODE_HASH),
@@ -155,9 +144,7 @@ export const appStore = {
         remoteNotifications,
         remoteSettings,
         remoteGroupData,
-        remoteMessageReads,
-        remoteExamSubjects,
-        remoteExamPapers
+        remoteMessageReads
       ] = await Promise.all([
         fetchProfilesFromSupabase(),
         fetchMessagesFromSupabase(),
@@ -172,9 +159,7 @@ export const appStore = {
         fetchNotificationsFromSupabase(this.currentUser.id),
         fetchMemoryLockSettingsFromSupabase(),
         fetchUserGroup(this.currentUser.id),
-        fetchMessageReadsFromSupabase(this.currentUser.id),
-        fetchExamSubjectsFromSupabase(),
-        fetchExamPapersFromSupabase()
+        fetchMessageReadsFromSupabase(this.currentUser.id)
       ]);
 
       const localReads = loadInitialState<Record<string, string>>(`messageReads_${this.currentUser.id}`, {});
@@ -220,14 +205,6 @@ export const appStore = {
       if (remoteReports) this.cancellationReports = remoteReports;
       if (remoteSnaps) this.snaps = remoteSnaps;
       if (remoteNotifications) this.notifications = remoteNotifications;
-      if (remoteExamSubjects && remoteExamSubjects.length > 0) {
-        this.examSubjects = remoteExamSubjects;
-        saveState('examSubjects', this.examSubjects);
-      }
-      if (remoteExamPapers) {
-        this.examPapers = remoteExamPapers;
-        saveState('examPapers', this.examPapers);
-      }
 
       notifyListeners();
     } catch (err) {
@@ -299,11 +276,18 @@ export const appStore = {
         fetchLoansFromSupabase()
       ]);
       if (remoteExpenses) {
-        this.expenses = remoteExpenses;
+        // Keep optimistic expenses that haven't been resolved yet
+        const tempPending = this.expenses.filter(
+          e => e.id.startsWith('exp-') && !remoteExpenses.some(re => re.id === e.id)
+        );
+        this.expenses = [...tempPending, ...remoteExpenses];
         saveState('expenses', this.expenses);
       }
       if (remoteLoans) {
-        this.loans = remoteLoans;
+        const tempPendingLoans = this.loans.filter(
+          l => l.id.startsWith('loan-') && !remoteLoans.some(rl => rl.id === l.id)
+        );
+        this.loans = [...tempPendingLoans, ...remoteLoans];
         saveState('loans', this.loans);
       }
       notifyListeners();
@@ -870,11 +854,29 @@ export const appStore = {
   },
 
   // Expenses & Loans Actions
-  async addGroupExpense(title: string, total_amount: number, category: string, participant_ids: string[]) {
+  async addGroupExpense(
+    title: string, 
+    total_amount: number, 
+    category: string, 
+    participant_ids: string[],
+    customShares?: Record<string, number>
+  ) {
     if (!this.currentUser) return;
-    const share = Number((total_amount / (participant_ids.length || 1)).toFixed(2));
+    const defaultShare = Number((total_amount / (participant_ids.length || 1)).toFixed(2));
     const groupId = this.group?.id || 'main-group';
     const tempId = `exp-${Date.now()}`;
+
+    const participants = participant_ids.map(uid => {
+      const share = (customShares && customShares[uid] !== undefined) 
+        ? Number(customShares[uid]) 
+        : defaultShare;
+      return {
+        user_id: uid,
+        share_amount: share,
+        status: (uid === this.currentUser.id ? 'settled' : 'pending') as 'settled' | 'pending',
+        settled_at: uid === this.currentUser.id ? new Date().toISOString() : undefined
+      };
+    });
 
     const newExpense: GroupExpense = {
       id: tempId,
@@ -883,30 +885,26 @@ export const appStore = {
       title,
       total_amount,
       category,
-      participants: participant_ids.map(uid => ({
-        user_id: uid,
-        share_amount: share,
-        status: uid === this.currentUser.id ? 'settled' : 'pending',
-      })),
+      participants,
       created_at: new Date().toISOString(),
       payer_profile: this.currentUser,
     };
 
-    this.expenses = [newExpense, ...this.expenses];
+    this.expenses = [newExpense, ...this.expenses.filter(e => e.id !== tempId)];
     saveState('expenses', this.expenses);
     notifyListeners();
 
     // Auto post to chat
-    this.addMessage('money', `💰 Added expense "${title}" (Total: ₹${total_amount}). Shares: ₹${share} each.`);
+    this.addMessage('money', `💰 Added expense "${title}" (Total: ₹${total_amount}) split among ${participant_ids.length} members.`);
 
     // Send notifications to other participants
-    participant_ids.forEach(uid => {
-      if (uid !== this.currentUser?.id) {
+    participants.forEach(p => {
+      if (p.user_id !== this.currentUser?.id) {
         this.addNotification(
-          uid,
+          p.user_id,
           'expense',
           '💰 New Shared Expense',
-          `${this.currentUser?.full_name} added "${title}". Your share is ₹${share}.`
+          `${this.currentUser?.full_name} added "${title}". Your share is ₹${p.share_amount}.`
         );
       }
     });
@@ -917,11 +915,7 @@ export const appStore = {
       title,
       total_amount,
       category,
-      participants: participant_ids.map(uid => ({
-        user_id: uid,
-        share_amount: share,
-        status: uid === this.currentUser.id ? 'settled' : 'pending'
-      }))
+      participants
     });
 
     if (remoteExp) {
@@ -929,6 +923,81 @@ export const appStore = {
       saveState('expenses', this.expenses);
       notifyListeners();
     }
+  },
+
+  async updateGroupExpense(
+    expenseId: string,
+    updates: {
+      title?: string;
+      category?: string;
+      total_amount?: number;
+      participants?: ExpenseParticipant[];
+    }
+  ) {
+    const existing = this.expenses.find(e => e.id === expenseId);
+    if (!existing) return;
+
+    const updatedExpense: GroupExpense = {
+      ...existing,
+      title: updates.title !== undefined ? updates.title : existing.title,
+      category: updates.category !== undefined ? updates.category : existing.category,
+      total_amount: updates.total_amount !== undefined ? updates.total_amount : existing.total_amount,
+      participants: updates.participants !== undefined ? updates.participants : existing.participants,
+    };
+
+    this.expenses = this.expenses.map(e => e.id === expenseId ? updatedExpense : e);
+    saveState('expenses', this.expenses);
+    notifyListeners();
+
+    if (this.currentUser && updates.participants) {
+      updates.participants.forEach(p => {
+        if (p.user_id !== this.currentUser?.id) {
+          this.addNotification(
+            p.user_id,
+            'expense',
+            '✏️ Expense Split Updated',
+            `${this.currentUser?.full_name} updated split for "${updatedExpense.title}". Your share is ₹${p.share_amount}.`
+          );
+        }
+      });
+    }
+
+    const remoteExp = await updateExpenseInSupabase(expenseId, updates);
+    if (remoteExp) {
+      this.expenses = this.expenses.map(e => e.id === expenseId ? { ...remoteExp, payer_profile: existing.payer_profile || this.currentUser } : e);
+      saveState('expenses', this.expenses);
+      notifyListeners();
+    }
+  },
+
+  async deleteExpense(expenseId: string) {
+    const existing = this.expenses.find(e => e.id === expenseId);
+    this.expenses = this.expenses.filter(e => e.id !== expenseId);
+    saveState('expenses', this.expenses);
+    notifyListeners();
+
+    if (existing && this.currentUser) {
+      existing.participants.forEach(p => {
+        if (p.user_id !== this.currentUser?.id) {
+          this.addNotification(
+            p.user_id,
+            'expense',
+            '🗑️ Expense Removed',
+            `${this.currentUser?.full_name} removed the expense "${existing.title}".`
+          );
+        }
+      });
+    }
+
+    await deleteExpenseFromSupabase(expenseId);
+  },
+
+  async deletePersonalLoan(loanId: string) {
+    this.loans = this.loans.filter(l => l.id !== loanId);
+    saveState('loans', this.loans);
+    notifyListeners();
+
+    await deleteLoanFromSupabase(loanId);
   },
 
   async addPersonalLoan(
@@ -1668,126 +1737,6 @@ export const appStore = {
     notifyListeners();
 
     await markNotificationsReadInSupabase(this.currentUser.id);
-  },
-
-  // Exam Papers Actions
-  async syncExamSubjects() {
-    try {
-      const subjects = await fetchExamSubjectsFromSupabase();
-      if (subjects && subjects.length > 0) {
-        this.examSubjects = subjects;
-        saveState('examSubjects', this.examSubjects);
-        notifyListeners();
-      }
-    } catch (e) {
-      console.warn('Error syncing exam subjects:', e);
-    }
-  },
-
-  async syncExamPapers() {
-    try {
-      const papers = await fetchExamPapersFromSupabase();
-      this.examPapers = papers;
-      saveState('examPapers', this.examPapers);
-      notifyListeners();
-    } catch (e) {
-      console.warn('Error syncing exam papers:', e);
-    }
-  },
-
-  async uploadExamPaper(
-    file: File,
-    subjectId: string,
-    title: string,
-    examType: ExamType | string,
-    academicYear: string,
-    onProgress?: (percent: number) => void
-  ): Promise<{ success: boolean; paper?: ExamPaper; error?: string }> {
-    if (!this.currentUser) return { success: false, error: 'User not authenticated' };
-    
-    try {
-      const subject = this.examSubjects.find(s => s.id === subjectId);
-      const subjectCode = subject?.code || 'GENERAL';
-
-      // 1. Upload file to Supabase Storage
-      const uploadRes = await uploadExamPaperFile(file, subjectCode, academicYear, onProgress);
-      if (uploadRes.error || !uploadRes.storagePath) {
-        return { success: false, error: uploadRes.error || 'Failed to upload paper file.' };
-      }
-
-      // 2. Insert record into exam_papers
-      const createRes = await createExamPaperInSupabase({
-        subject_id: subjectId,
-        title,
-        exam_type: examType,
-        academic_year: academicYear,
-        file_path: uploadRes.storagePath,
-        file_name: uploadRes.fileName || file.name,
-        file_type: uploadRes.fileType || file.type || 'application/pdf',
-        file_size: uploadRes.fileSize || file.size,
-        uploaded_by: this.currentUser.id,
-      });
-
-      if (!createRes.paper) {
-        return { success: false, error: createRes.error || 'Failed to save paper metadata in database.' };
-      }
-
-      // 3. Update local state
-      this.examPapers = [createRes.paper, ...this.examPapers];
-      saveState('examPapers', this.examPapers);
-      notifyListeners();
-
-      return { success: true, paper: createRes.paper };
-    } catch (err: any) {
-      console.error('Error uploading exam paper:', err);
-      return { success: false, error: err?.message || 'Upload failed' };
-    }
-  },
-
-  async updateExamPaper(
-    paperId: string,
-    updates: {
-      subject_id?: string;
-      title?: string;
-      exam_type?: ExamType | string;
-      academic_year?: string;
-    }
-  ): Promise<{ success: boolean; paper?: ExamPaper; error?: string }> {
-    try {
-      const updateRes = await updateExamPaperInSupabase(paperId, updates);
-      if (!updateRes.paper) {
-        return { success: false, error: updateRes.error || 'Failed to update exam paper in database.' };
-      }
-
-      this.examPapers = this.examPapers.map(p => p.id === paperId ? { ...p, ...updateRes.paper } : p);
-      saveState('examPapers', this.examPapers);
-      notifyListeners();
-
-      return { success: true, paper: updateRes.paper };
-    } catch (err: any) {
-      console.error('Error updating exam paper:', err);
-      return { success: false, error: err?.message || 'Update failed' };
-    }
-  },
-
-  async deleteExamPaper(paperId: string, filePath?: string): Promise<{ success: boolean; error?: string }> {
-    try {
-      // Find paper in state if filePath not provided
-      const paper = this.examPapers.find(p => p.id === paperId);
-      const targetPath = filePath || paper?.file_path || '';
-
-      const deleteRes = await deleteExamPaperInSupabase(paperId, targetPath);
-      if (deleteRes.success) {
-        this.examPapers = this.examPapers.filter(p => p.id !== paperId);
-        saveState('examPapers', this.examPapers);
-        notifyListeners();
-        return { success: true };
-      }
-      return { success: false, error: deleteRes.error || 'Failed to delete paper' };
-    } catch (err: any) {
-      console.error('Error deleting exam paper:', err);
-      return { success: false, error: err?.message || 'Error deleting exam paper' };
-    }
   }
 };
 

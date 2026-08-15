@@ -11,7 +11,6 @@ import { MemoryGallery } from './components/memories/MemoryGallery';
 import { SnapsFeed } from './components/snaps/SnapsFeed';
 import { BorrowedTracker } from './components/borrowed/BorrowedTracker';
 import { CollegeClassesTab } from './components/college/CollegeClassesTab';
-import { ExamPapersView } from './components/examPapers/ExamPapersView';
 import { MeTab } from './components/profile/MeTab';
 import { PaymentQRModal } from './components/expenses/PaymentQRModal';
 import { FriendProfileModal } from './components/friends/FriendProfileModal';
@@ -217,8 +216,6 @@ export function AppContent() {
           {activeTab === 'borrowed' && <BorrowedTracker />}
 
           {activeTab === 'college' && <CollegeClassesTab />}
-
-          {activeTab === 'exam_papers' && <ExamPapersView />}
 
           {activeTab === 'me' && (
             <MeTab
