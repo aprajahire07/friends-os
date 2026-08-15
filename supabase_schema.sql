@@ -122,7 +122,7 @@ CREATE TABLE IF NOT EXISTS public.friendships (
 CREATE TABLE IF NOT EXISTS public.chat_channels (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   group_id UUID REFERENCES public.friend_groups(id) ON DELETE CASCADE,
-  name TEXT NOT NULL CHECK (name IN ('general', 'money', 'college', 'plans', 'memories', 'random')),
+  name TEXT NOT NULL CHECK (name IN ('general', 'college', 'plans', 'memories', 'random')),
   description TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -131,7 +131,7 @@ CREATE TABLE IF NOT EXISTS public.messages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   group_id UUID REFERENCES public.friend_groups(id) ON DELETE CASCADE,
   channel_id UUID REFERENCES public.chat_channels(id) ON DELETE SET NULL,
-  category TEXT NOT NULL DEFAULT 'general' CHECK (category IN ('general', 'money', 'college', 'plans', 'memories', 'random')),
+  category TEXT NOT NULL DEFAULT 'general' CHECK (category IN ('general', 'college', 'plans', 'memories', 'random')),
   sender_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
   content TEXT NOT NULL,
   media_url TEXT,

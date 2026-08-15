@@ -3,6 +3,7 @@ import { X, Calendar, Tag, User, CheckCircle2, Clock, DollarSign, Users, QrCode,
 import { GroupExpense, PersonalLoan, Profile } from '../../types';
 import { appStore } from '../../lib/store';
 import { EditGroupExpenseModal } from './EditGroupExpenseModal';
+import { EditPersonalLoanModal } from './EditPersonalLoanModal';
 import { useToast } from '../ui/Toast';
 
 interface TransactionDetailModalProps {
@@ -22,6 +23,7 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
 }) => {
   const { showToast } = useToast();
   const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isEditLoanOpen, setIsEditLoanOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
   if (!isOpen || (!loan && !expense)) return null;
@@ -80,227 +82,261 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
   };
 
   if (loan) {
-    const isLender = loan.lender_id === currentUser.id;
-    const lender = loan.lender_profile || appStore.profiles.find(p => p.id === loan.lender_id);
-    const borrower = loan.borrower_profile || appStore.profiles.find(p => p.id === loan.borrower_id);
-    const isPaid = loan.status === 'paid';
-    const isClaimed = loan.status === 'payment_claimed';
+    const freshLoan = appStore.loans.find(l => l.id === loan.id) || loan;
+    const isLender = freshLoan.lender_id === currentUser.id;
+    const lender = freshLoan.lender_profile || appStore.profiles.find(p => p.id === freshLoan.lender_id);
+    const borrower = freshLoan.borrower_profile || appStore.profiles.find(p => p.id === freshLoan.borrower_id);
+    const isPaid = freshLoan.status === 'paid';
+    const isClaimed = freshLoan.status === 'payment_claimed';
 
     const handleConfirmPayment = async () => {
-      await appStore.confirmLoanPayment(loan.id);
+      await appStore.confirmLoanPayment(freshLoan.id);
       onClose();
     };
 
     const handleRejectClaim = async () => {
-      await appStore.rejectLoanPaymentClaim(loan.id);
+      await appStore.rejectLoanPaymentClaim(freshLoan.id);
       onClose();
     };
 
     const handleClaimPayment = async () => {
-      await appStore.claimLoanPayment(loan.id);
+      await appStore.claimLoanPayment(freshLoan.id);
       onClose();
     };
 
     return (
-      <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="text-xl">💰</span>
-              <h3 className="text-base font-black text-white">Loan Transaction Details</h3>
+      <>
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">💰</span>
+                <h3 className="text-base font-black text-white">Loan Transaction Details</h3>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {!isPaid && (
+                  <button
+                    type="button"
+                    onClick={() => setIsEditLoanOpen(true)}
+                    className="p-1.5 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors flex items-center gap-1 text-xs font-semibold px-2.5"
+                    title="Edit Transaction"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>Edit</span>
+                  </button>
+                )}
+                <button
+                  onClick={onClose}
+                  className="p-1.5 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
-            <button
-              onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
 
-          {/* Status Banner */}
-          <div className={`p-4 rounded-2xl border flex items-center justify-between ${
-            isPaid 
-              ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300' 
-              : isClaimed
-                ? 'bg-amber-950/40 border-amber-800/60 text-amber-300'
-                : 'bg-slate-950 border-slate-800 text-slate-300'
-          }`}>
-            <div className="flex items-center gap-2.5">
-              {isPaid ? (
-                <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
-              ) : isClaimed ? (
-                <Clock className="w-5 h-5 text-amber-400 shrink-0 animate-pulse" />
-              ) : (
-                <Clock className="w-5 h-5 text-slate-400 shrink-0" />
+            {/* Status Banner */}
+            <div className={`p-4 rounded-2xl border flex items-center justify-between ${
+              isPaid 
+                ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300' 
+                : isClaimed
+                  ? 'bg-amber-950/40 border-amber-800/60 text-amber-300'
+                  : 'bg-slate-950 border-slate-800 text-slate-300'
+            }`}>
+              <div className="flex items-center gap-2.5">
+                {isPaid ? (
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                ) : isClaimed ? (
+                  <Clock className="w-5 h-5 text-amber-400 shrink-0 animate-pulse" />
+                ) : (
+                  <Clock className="w-5 h-5 text-slate-400 shrink-0" />
+                )}
+                <div>
+                  <p className="text-xs font-bold">
+                    {isPaid 
+                      ? 'Completed & Paid' 
+                      : isClaimed 
+                        ? 'Payment Claimed (Awaiting Approval)' 
+                        : 'Pending Payment'}
+                  </p>
+                  <p className="text-[10px] text-slate-400">
+                    {freshLoan.reason}
+                  </p>
+                </div>
+              </div>
+              <span className="text-xl font-black text-white">₹{freshLoan.amount}</span>
+            </div>
+
+            {/* Details */}
+            <div className="space-y-3 bg-slate-950/60 border border-slate-800 rounded-2xl p-4 text-xs">
+              <div className="flex items-center justify-between py-1 border-b border-slate-800/60">
+                <span className="text-slate-400 flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Lender (Gave money)</span>
+                </span>
+                <div className="flex items-center gap-2">
+                  <img
+                    src={lender?.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=100&q=80'}
+                    alt={lender?.full_name}
+                    className="w-5 h-5 rounded-full object-cover border border-slate-700"
+                  />
+                  <span className="font-bold text-white">
+                    {lender?.full_name} {isLender && '(You)'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between py-1 border-b border-slate-800/60">
+                <span className="text-slate-400 flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-rose-400" />
+                  <span>Borrower (Owes money)</span>
+                </span>
+                <div className="flex items-center gap-2">
+                  <img
+                    src={borrower?.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=100&q=80'}
+                    alt={borrower?.full_name}
+                    className="w-5 h-5 rounded-full object-cover border border-slate-700"
+                  />
+                  <span className="font-bold text-white">
+                    {borrower?.full_name} {freshLoan.borrower_id === currentUser.id && '(You)'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between py-1 border-b border-slate-800/60">
+                <span className="text-slate-400 flex items-center gap-1.5">
+                  <Tag className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Category</span>
+                </span>
+                <span className="font-medium text-slate-200">{freshLoan.category}</span>
+              </div>
+
+              <div className="flex items-center justify-between py-1">
+                <span className="text-slate-400 flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Created At</span>
+                </span>
+                <span className="font-medium text-slate-300">{formatDate(freshLoan.created_at)}</span>
+              </div>
+
+              {freshLoan.claimed_at && (
+                <div className="flex items-center justify-between py-1 text-amber-300">
+                  <span>Claimed At</span>
+                  <span>{formatDate(freshLoan.claimed_at)}</span>
+                </div>
               )}
-              <div>
-                <p className="text-xs font-bold">
-                  {isPaid 
-                    ? 'Completed & Paid' 
-                    : isClaimed 
-                      ? 'Payment Claimed (Awaiting Approval)' 
-                      : 'Pending Payment'}
-                </p>
-                <p className="text-[10px] text-slate-400">
-                  {loan.reason}
-                </p>
-              </div>
-            </div>
-            <span className="text-xl font-black text-white">₹{loan.amount}</span>
-          </div>
 
-          {/* Details */}
-          <div className="space-y-3 bg-slate-950/60 border border-slate-800 rounded-2xl p-4 text-xs">
-            <div className="flex items-center justify-between py-1 border-b border-slate-800/60">
-              <span className="text-slate-400 flex items-center gap-1.5">
-                <User className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Lender (Gave money)</span>
-              </span>
-              <div className="flex items-center gap-2">
-                <img
-                  src={lender?.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=100&q=80'}
-                  alt={lender?.full_name}
-                  className="w-5 h-5 rounded-full object-cover border border-slate-700"
-                />
-                <span className="font-bold text-white">
-                  {lender?.full_name} {isLender && '(You)'}
-                </span>
-              </div>
+              {freshLoan.paid_at && (
+                <div className="flex items-center justify-between py-1 text-emerald-400">
+                  <span>Paid / Settled At</span>
+                  <span>{formatDate(freshLoan.paid_at)}</span>
+                </div>
+              )}
             </div>
 
-            <div className="flex items-center justify-between py-1 border-b border-slate-800/60">
-              <span className="text-slate-400 flex items-center gap-1.5">
-                <User className="w-3.5 h-3.5 text-rose-400" />
-                <span>Borrower (Owes money)</span>
-              </span>
-              <div className="flex items-center gap-2">
-                <img
-                  src={borrower?.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=100&q=80'}
-                  alt={borrower?.full_name}
-                  className="w-5 h-5 rounded-full object-cover border border-slate-700"
-                />
-                <span className="font-bold text-white">
-                  {borrower?.full_name} {loan.borrower_id === currentUser.id && '(You)'}
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between py-1 border-b border-slate-800/60">
-              <span className="text-slate-400 flex items-center gap-1.5">
-                <Tag className="w-3.5 h-3.5 text-amber-400" />
-                <span>Category</span>
-              </span>
-              <span className="font-medium text-slate-200">{loan.category}</span>
-            </div>
-
-            <div className="flex items-center justify-between py-1">
-              <span className="text-slate-400 flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Created At</span>
-              </span>
-              <span className="font-medium text-slate-300">{formatDate(loan.created_at)}</span>
-            </div>
-
-            {loan.claimed_at && (
-              <div className="flex items-center justify-between py-1 text-amber-300">
-                <span>Claimed At</span>
-                <span>{formatDate(loan.claimed_at)}</span>
-              </div>
-            )}
-
-            {loan.paid_at && (
-              <div className="flex items-center justify-between py-1 text-emerald-400">
-                <span>Paid / Settled At</span>
-                <span>{formatDate(loan.paid_at)}</span>
-              </div>
-            )}
-          </div>
-
-          {/* Action buttons */}
-          <div className="space-y-2 pt-1">
-            {!isPaid && (
-              <>
-                {isClaimed ? (
-                  isLender ? (
-                    <div className="grid grid-cols-2 gap-2">
+            {/* Action buttons */}
+            <div className="space-y-2 pt-1">
+              {!isPaid && (
+                <>
+                  {isClaimed ? (
+                    isLender ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={handleConfirmPayment}
+                          className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-1.5 transition-all"
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>Confirm Paid</span>
+                        </button>
+                        <button
+                          onClick={handleRejectClaim}
+                          className="w-full py-2.5 rounded-xl bg-rose-950 hover:bg-rose-900 border border-rose-800 text-rose-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+                        >
+                          <X className="w-4 h-4" />
+                          <span>Reject Claim</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-amber-950/40 border border-amber-800/60 rounded-xl text-center">
+                        <p className="text-xs font-bold text-amber-300">
+                          Payment claimed! Waiting for {lender?.full_name.split(' ')[0]} to approve.
+                        </p>
+                      </div>
+                    )
+                  ) : (
+                    freshLoan.borrower_id === currentUser.id ? (
+                      <div className="space-y-2">
+                        {lender && onOpenPaymentQR && (
+                          <button
+                            onClick={() => {
+                              onClose();
+                              onOpenPaymentQR(lender);
+                            }}
+                            className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-1.5 transition-all active:scale-95"
+                          >
+                            <QrCode className="w-4 h-4" />
+                            <span>Pay via UPI / QR</span>
+                          </button>
+                        )}
+                        <button
+                          onClick={handleClaimPayment}
+                          className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-1.5 transition-all active:scale-95"
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>I have paid ₹{freshLoan.amount}</span>
+                        </button>
+                      </div>
+                    ) : (
                       <button
                         onClick={handleConfirmPayment}
-                        className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-1.5 transition-all"
+                        className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
                       >
                         <CheckCircle2 className="w-4 h-4" />
-                        <span>Confirm Paid</span>
+                        <span>Mark Paid Directly</span>
                       </button>
-                      <button
-                        onClick={handleRejectClaim}
-                        className="w-full py-2.5 rounded-xl bg-rose-950 hover:bg-rose-900 border border-rose-800 text-rose-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
-                      >
-                        <X className="w-4 h-4" />
-                        <span>Reject Claim</span>
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="p-3 bg-amber-950/40 border border-amber-800/60 rounded-xl text-center">
-                      <p className="text-xs font-bold text-amber-300">
-                        Payment claimed! Waiting for {lender?.full_name.split(' ')[0]} to approve.
-                      </p>
-                    </div>
-                  )
-                ) : (
-                  loan.borrower_id === currentUser.id ? (
-                    <div className="space-y-2">
-                      {lender && onOpenPaymentQR && (
-                        <button
-                          onClick={() => {
-                            onClose();
-                            onOpenPaymentQR(lender);
-                          }}
-                          className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-1.5 transition-all active:scale-95"
-                        >
-                          <QrCode className="w-4 h-4" />
-                          <span>Pay via UPI / QR</span>
-                        </button>
-                      )}
-                      <button
-                        onClick={handleClaimPayment}
-                        className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-1.5 transition-all active:scale-95"
-                      >
-                        <CheckCircle2 className="w-4 h-4" />
-                        <span>I have paid ₹{loan.amount}</span>
-                      </button>
-                    </div>
-                  ) : (
+                    )
+                  )}
+                </>
+              )}
+
+              <div className="flex items-center justify-between pt-2">
+                <button
+                  onClick={handleDeleteLoan}
+                  disabled={isDeleting}
+                  className="px-3 py-1.5 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-950/50 rounded-lg flex items-center gap-1 transition-all"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete Record</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  {!isPaid && (
                     <button
-                      onClick={handleConfirmPayment}
-                      className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+                      type="button"
+                      onClick={() => setIsEditLoanOpen(true)}
+                      className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl flex items-center gap-1 transition-all"
                     >
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>Mark Paid Directly</span>
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span>Edit</span>
                     </button>
-                  )
-                )}
-              </>
-            )}
-
-            <div className="flex items-center justify-between pt-2">
-              <button
-                onClick={handleDeleteLoan}
-                disabled={isDeleting}
-                className="px-3 py-1.5 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-950/50 rounded-lg flex items-center gap-1 transition-all"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Delete Record</span>
-              </button>
-
-              <button
-                onClick={onClose}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl transition-all"
-              >
-                Close
-              </button>
+                  )}
+                  <button
+                    onClick={onClose}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl transition-all"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+
+        <EditPersonalLoanModal
+          isOpen={isEditLoanOpen}
+          onClose={() => setIsEditLoanOpen(false)}
+          loan={freshLoan}
+        />
+      </>
     );
   }
 

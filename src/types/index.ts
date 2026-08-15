@@ -50,7 +50,7 @@ export interface GroupMember {
   profile?: Profile;
 }
 
-export type ChatCategory = 'general' | 'money' | 'college' | 'plans' | 'memories' | 'random';
+export type ChatCategory = 'general' | 'college' | 'plans' | 'memories' | 'random';
 
 export interface ChatMessage {
   id: string;

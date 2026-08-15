@@ -5,7 +5,6 @@ import {
   Search, 
   X, 
   MessageSquare, 
-  Wallet, 
   GraduationCap, 
   CalendarDays, 
   Images, 
@@ -52,7 +51,6 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile }) => {
 
   const categories: { id: ChatCategory; label: string; icon: any; color: string }[] = [
     { id: 'general', label: 'General', icon: MessageSquare, color: 'text-blue-400' },
-    { id: 'money', label: 'Money & Debts', icon: Wallet, color: 'text-emerald-400' },
     { id: 'college', label: 'College & Classes', icon: GraduationCap, color: 'text-cyan-400' },
     { id: 'plans', label: 'Plans & Trips', icon: CalendarDays, color: 'text-violet-400' },
     { id: 'memories', label: 'Memories', icon: Images, color: 'text-indigo-400' },

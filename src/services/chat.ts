@@ -160,7 +160,7 @@ export async function markAllCategoriesAsReadInSupabase(userId: string): Promise
 
   try {
     const now = new Date().toISOString();
-    const categories: ChatCategory[] = ['general', 'money', 'college', 'plans', 'memories', 'random'];
+    const categories: ChatCategory[] = ['general', 'college', 'plans', 'memories', 'random'];
     const rows = categories.map(category => ({
       user_id: userId,
       category,

@@ -37,6 +37,7 @@ import {
   deleteExpenseFromSupabase,
   fetchLoansFromSupabase, 
   addLoanToSupabase, 
+  updateLoanInSupabase,
   deleteLoanFromSupabase,
   claimLoanPaymentInSupabase,
   confirmLoanPaymentInSupabase, 
@@ -812,7 +813,7 @@ export const appStore = {
   async markAllMessagesAsRead() {
     if (!this.currentUser) return;
     const now = new Date().toISOString();
-    const categories: ChatCategory[] = ['general', 'money', 'college', 'plans', 'memories', 'random'];
+    const categories: ChatCategory[] = ['general', 'college', 'plans', 'memories', 'random'];
     const updated: Record<string, string> = { ...this.messageReads };
     for (const cat of categories) {
       updated[cat] = now;
@@ -839,7 +840,7 @@ export const appStore = {
     }
 
     // Sum across all categories
-    const categories: ChatCategory[] = ['general', 'money', 'college', 'plans', 'memories', 'random'];
+    const categories: ChatCategory[] = ['general', 'college', 'plans', 'memories', 'random'];
     let total = 0;
     for (const cat of categories) {
       const lastRead = this.messageReads[cat] || '1970-01-01T00:00:00.000Z';
@@ -893,9 +894,6 @@ export const appStore = {
     this.expenses = [newExpense, ...this.expenses.filter(e => e.id !== tempId)];
     saveState('expenses', this.expenses);
     notifyListeners();
-
-    // Auto post to chat
-    this.addMessage('money', `💰 Added expense "${title}" (Total: ₹${total_amount}) split among ${participant_ids.length} members.`);
 
     // Send notifications to other participants
     participants.forEach(p => {
@@ -1000,6 +998,55 @@ export const appStore = {
     await deleteLoanFromSupabase(loanId);
   },
 
+  async updatePersonalLoan(
+    loanId: string,
+    updates: {
+      amount?: number;
+      reason?: string;
+      category?: string;
+      borrower_id?: string;
+      lender_id?: string;
+    }
+  ) {
+    const existing = this.loans.find(l => l.id === loanId);
+    if (!existing) return;
+
+    const updatedLoan: PersonalLoan = {
+      ...existing,
+      amount: updates.amount !== undefined ? updates.amount : existing.amount,
+      reason: updates.reason !== undefined ? updates.reason : existing.reason,
+      category: updates.category !== undefined ? updates.category : existing.category,
+      borrower_id: updates.borrower_id !== undefined ? updates.borrower_id : existing.borrower_id,
+      lender_id: updates.lender_id !== undefined ? updates.lender_id : existing.lender_id,
+    };
+
+    const lender = this.profiles.find(p => p.id === updatedLoan.lender_id) || existing.lender_profile;
+    const borrower = this.profiles.find(p => p.id === updatedLoan.borrower_id) || existing.borrower_profile;
+    updatedLoan.lender_profile = lender;
+    updatedLoan.borrower_profile = borrower;
+
+    this.loans = this.loans.map(l => l.id === loanId ? updatedLoan : l);
+    saveState('loans', this.loans);
+    notifyListeners();
+
+    if (this.currentUser) {
+      const otherUserId = updatedLoan.lender_id === this.currentUser.id ? updatedLoan.borrower_id : updatedLoan.lender_id;
+      this.addNotification(
+        otherUserId,
+        'expense',
+        '✏️ Debt Updated',
+        `${this.currentUser.full_name} updated the transaction to ₹${updatedLoan.amount} for "${updatedLoan.reason}".`
+      );
+    }
+
+    const remoteLoan = await updateLoanInSupabase(loanId, updates);
+    if (remoteLoan) {
+      this.loans = this.loans.map(l => l.id === loanId ? { ...remoteLoan, lender_profile: lender, borrower_profile: borrower } : l);
+      saveState('loans', this.loans);
+      notifyListeners();
+    }
+  },
+
   async addPersonalLoan(
     borrower_id: string, 
     amount: number, 
@@ -1032,10 +1079,9 @@ export const appStore = {
     saveState('loans', this.loans);
     notifyListeners();
 
-    // Auto post to chat
+    // Send notifications to the other party
     const isCurrentUserLender = this.currentUser.id === lenderId;
     if (isCurrentUserLender) {
-      this.addMessage('money', `🤝 ${this.currentUser.full_name} gave ₹${amount} to ${borrower?.full_name.split(' ')[0] || 'friend'} for "${reason}".`);
       this.addNotification(
         actualBorrowerId,
         'expense',
@@ -1043,7 +1089,6 @@ export const appStore = {
         `${this.currentUser.full_name} recorded that you owe ₹${amount} for "${reason}".`
       );
     } else {
-      this.addMessage('money', `🤝 ${this.currentUser.full_name} borrowed ₹${amount} from ${lender?.full_name.split(' ')[0] || 'friend'} for "${reason}".`);
       this.addNotification(
         lenderId,
         'expense',

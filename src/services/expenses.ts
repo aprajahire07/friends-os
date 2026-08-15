@@ -332,6 +332,60 @@ export async function addLoanToSupabase(loan: Partial<PersonalLoan>): Promise<Pe
   }
 }
 
+export async function updateLoanInSupabase(
+  loanId: string,
+  updates: {
+    amount?: number;
+    reason?: string;
+    category?: string;
+    borrower_id?: string;
+    lender_id?: string;
+    status?: 'pending' | 'payment_claimed' | 'paid';
+  }
+): Promise<PersonalLoan | null> {
+  if (!isSupabaseConfigured || !supabase) return null;
+
+  try {
+    const updatePayload: any = {
+      updated_at: new Date().toISOString()
+    };
+    if (updates.amount !== undefined) updatePayload.amount = Number(updates.amount);
+    if (updates.reason !== undefined) updatePayload.reason = updates.reason;
+    if (updates.category !== undefined) updatePayload.category = updates.category;
+    if (updates.borrower_id !== undefined) updatePayload.borrower_id = updates.borrower_id;
+    if (updates.lender_id !== undefined) updatePayload.lender_id = updates.lender_id;
+    if (updates.status !== undefined) updatePayload.status = updates.status;
+
+    const { data, error } = await supabase
+      .from('loans')
+      .update(updatePayload)
+      .eq('id', loanId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating loan in Supabase:', error.message);
+      return null;
+    }
+
+    return {
+      id: data.id,
+      lender_id: data.lender_id,
+      borrower_id: data.borrower_id,
+      amount: Number(data.amount),
+      reason: data.reason,
+      category: data.category,
+      status: data.status,
+      claimed_at: data.claimed_at || null,
+      paid_at: data.paid_at || null,
+      created_at: data.created_at
+    };
+  } catch (err) {
+    console.error('Failed to update loan:', err);
+    return null;
+  }
+}
+
 export async function deleteLoanFromSupabase(loanId: string): Promise<boolean> {
   if (!isSupabaseConfigured || !supabase) return false;
 
