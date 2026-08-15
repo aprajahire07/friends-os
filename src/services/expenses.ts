@@ -92,8 +92,8 @@ export async function addExpenseToSupabase(expense: Partial<GroupExpense>): Prom
       .select()
       .single();
 
-    if (expError) {
-      console.error('Error inserting expense into Supabase:', expError.message);
+    if (expError || !expData) {
+      console.error('Error inserting expense into Supabase:', expError?.message);
       return null;
     }
 
@@ -116,8 +116,13 @@ export async function addExpenseToSupabase(expense: Partial<GroupExpense>): Prom
         .select();
 
       if (pError) {
-        console.error('Error inserting expense participants:', pError.message);
-      } else if (partData) {
+        console.error('Error inserting expense participants, rolling back expense:', pError.message);
+        // Rollback parent expense to prevent orphaned records
+        await supabase.from('expenses').delete().eq('id', expData.id);
+        return null;
+      }
+
+      if (partData) {
         insertedParticipants = partData.map((p: any) => ({
           user_id: p.user_id,
           share_amount: Number(p.share_amount || 0),
@@ -175,20 +180,24 @@ export async function updateExpenseInSupabase(
       .select()
       .single();
 
-    if (expErr) {
-      console.error('Error updating expense:', expErr.message);
+    if (expErr || !expData) {
+      console.error('Error updating expense:', expErr?.message);
       return null;
     }
 
     let finalParticipants: ExpenseParticipant[] = updates.participants || [];
 
     if (updates.participants && updates.participants.length > 0) {
-      // Clean delete existing participants and re-insert updated ones
+      const activeUserIds = updates.participants.map(p => p.user_id);
+
+      // Remove any participants no longer in the split
       await supabase
         .from('expense_participants')
         .delete()
-        .eq('expense_id', expenseId);
+        .eq('expense_id', expenseId)
+        .not('user_id', 'in', `(${activeUserIds.map(id => `'${id}'`).join(',')})`);
 
+      // Upsert the updated participants
       const pRows = updates.participants.map(p => ({
         expense_id: expenseId,
         user_id: p.user_id,
@@ -201,11 +210,11 @@ export async function updateExpenseInSupabase(
 
       const { data: partData, error: partErr } = await supabase
         .from('expense_participants')
-        .insert(pRows)
+        .upsert(pRows, { onConflict: 'expense_id,user_id' })
         .select();
 
       if (partErr) {
-        console.error('Error updating expense participants:', partErr.message);
+        console.error('Error upserting expense participants:', partErr.message);
       } else if (partData) {
         finalParticipants = partData.map((p: any) => ({
           user_id: p.user_id,

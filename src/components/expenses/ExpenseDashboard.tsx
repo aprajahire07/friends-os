@@ -14,12 +14,21 @@ import {
   User, 
   Tag, 
   Info,
-  DollarSign
+  DollarSign,
+  Users,
+  Edit3,
+  Trash2,
+  Clock,
+  Check,
+  Split,
+  HandCoins
 } from 'lucide-react';
 import { appStore, useAppStore } from '../../lib/store';
 import { Profile, PersonalLoan, GroupExpense } from '../../types';
 import { AddMoneyConversationalModal } from './AddMoneyConversationalModal';
+import { AddGroupExpenseModal } from './AddGroupExpenseModal';
 import { TransactionDetailModal } from './TransactionDetailModal';
+import { EditGroupExpenseModal } from './EditGroupExpenseModal';
 import { useToast } from '../ui/Toast';
 
 interface ExpenseDashboardProps {
@@ -35,16 +44,21 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   const store = useAppStore();
   const currentUser = store.currentUser;
 
-  const [activeTab, setActiveTab] = useState<'active' | 'history'>('active');
-  const [showAddMoneyModal, setShowAddMoneyModal] = useState(
+  // 4 Primary Views: 'overview' | 'split' | 'debts' | 'history'
+  const [activeTab, setActiveTab] = useState<'overview' | 'split' | 'debts' | 'history'>('overview');
+  
+  // Modals state
+  const [showAddConversationalModal, setShowAddConversationalModal] = useState(
     Boolean(preselectedFriendForMoney)
   );
+  const [showAddGroupExpenseModal, setShowAddGroupExpenseModal] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<GroupExpense | null>(null);
 
   // Selected Transaction for Detail Modal
   const [selectedLoan, setSelectedLoan] = useState<PersonalLoan | null>(null);
   const [selectedExpense, setSelectedExpense] = useState<GroupExpense | null>(null);
 
-  // Filters State for History
+  // Filters State for History & Split
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPerson, setSelectedPerson] = useState<string>('all');
   const [selectedMonth, setSelectedMonth] = useState<string>('all');
@@ -83,7 +97,9 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
   const othersOweYou = Math.round((loanOthersOweYou + groupOthersOweYou) * 100) / 100;
   const youOwe = Math.round((loanYouOwe + groupYouOwe) * 100) / 100;
+  const netBalance = Math.round((othersOweYou - youOwe) * 100) / 100;
 
+  // Actions
   const handleClaimLoanPayment = async (loanId: string, lenderName: string) => {
     await appStore.claimLoanPayment(loanId);
     showToast('Payment Claimed 💰', `Notified ${lenderName} to verify and confirm receipt!`, 'info');
@@ -114,9 +130,47 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     showToast('Share Rejected ❌', `Rejected payment claim for ${memberName}.`, 'error');
   };
 
-  // Active Loans & Active Expenses
-  const activeLoans = loans.filter(l => l.status === 'pending' || l.status === 'payment_claimed');
-  const activeExpenses = expenses.filter(e => e.participants.some(p => p.status !== 'settled'));
+  const handleDeleteExpense = async (expenseId: string, title: string) => {
+    if (confirm(`Are you sure you want to delete the split "${title}"?`)) {
+      await appStore.deleteExpense(expenseId);
+      showToast('Split Deleted', `Removed "${title}" from shared money transactions.`, 'info');
+    }
+  };
+
+  // Active Loans & Active Expenses (relevant to current user)
+  const activeLoans = useMemo(() => {
+    return loans.filter(l => 
+      (l.lender_id === currentUser.id || l.borrower_id === currentUser.id) &&
+      (l.status === 'pending' || l.status === 'payment_claimed')
+    );
+  }, [loans, currentUser.id]);
+
+  const activeExpenses = useMemo(() => {
+    return expenses.filter(e => {
+      const isPayer = e.paid_by === currentUser.id;
+      const isParticipant = e.participants.some(p => p.user_id === currentUser.id);
+      const hasUnsettledShares = e.participants.some(p => p.status !== 'settled');
+      return (isPayer || isParticipant) && hasUnsettledShares;
+    });
+  }, [expenses, currentUser.id]);
+
+  // Split view filtered
+  const splitExpenses = useMemo(() => {
+    return expenses.filter(e => {
+      const isPayer = e.paid_by === currentUser.id;
+      const isParticipant = e.participants.some(p => p.user_id === currentUser.id);
+      if (!isPayer && !isParticipant) return false;
+
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchTitle = e.title.toLowerCase().includes(q);
+        const matchCategory = e.category.toLowerCase().includes(q);
+        if (!matchTitle && !matchCategory) return false;
+      }
+
+      return true;
+    });
+  }, [expenses, currentUser.id, searchQuery]);
 
   // Filtering for History View
   const filteredHistory = useMemo(() => {
@@ -153,11 +207,12 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     const processedExpenses = expenses.map(exp => {
       const isPayer = exp.paid_by === currentUser.id;
       const payerProfile = appStore.profiles.find(p => p.id === exp.paid_by);
-      const myShare = exp.participants.find(p => p.user_id === currentUser.id);
-      const allSettled = exp.participants.every(p => p.status === 'settled');
+      const myPart = exp.participants.find(p => p.user_id === currentUser.id);
       const dateObj = new Date(exp.created_at);
       const monthStr = String(dateObj.getMonth() + 1);
       const yearStr = String(dateObj.getFullYear());
+
+      const allSettled = exp.participants.length > 0 && exp.participants.every(p => p.status === 'settled');
 
       return {
         type: 'expense' as const,
@@ -165,15 +220,15 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
         rawExpense: exp,
         title: exp.title,
         amount: exp.total_amount,
-        myShareAmount: myShare?.share_amount || 0,
-        category: exp.category || 'Food',
+        category: exp.category,
         created_at: exp.created_at,
-        paid_at: exp.created_at,
+        paid_at: allSettled ? exp.created_at : undefined,
         status: allSettled ? ('paid' as const) : ('pending' as const),
         isGave: isPayer,
+        myShareAmount: myPart?.share_amount || 0,
         otherPersonId: exp.paid_by,
-        otherPersonName: payerProfile?.full_name || 'Friend',
-        otherPersonAvatar: payerProfile?.avatar_url,
+        otherPersonName: isPayer ? 'Group Split' : (payerProfile?.full_name || 'Friend'),
+        otherPersonAvatar: isPayer ? undefined : payerProfile?.avatar_url,
         month: monthStr,
         year: yearStr,
         allSettled
@@ -186,34 +241,28 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
       // Search query
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
-        const matchTitle = item.title.toLowerCase().includes(q);
-        const matchPerson = item.otherPersonName.toLowerCase().includes(q);
-        const matchCategory = item.category.toLowerCase().includes(q);
-        if (!matchTitle && !matchPerson && !matchCategory) return false;
+        const matchesTitle = item.title.toLowerCase().includes(q);
+        const matchesPerson = item.otherPersonName.toLowerCase().includes(q);
+        const matchesCat = item.category.toLowerCase().includes(q);
+        if (!matchesTitle && !matchesPerson && !matchesCat) {
+          return false;
+        }
       }
 
       // Person Filter
       if (selectedPerson !== 'all') {
         if (item.type === 'loan') {
-          if (item.rawLoan.lender_id !== selectedPerson && item.rawLoan.borrower_id !== selectedPerson) {
-            return false;
-          }
+          if (item.otherPersonId !== selectedPerson) return false;
         } else {
-          const isParticipant = item.rawExpense.participants.some(p => p.user_id === selectedPerson);
+          const hasPerson = item.rawExpense.participants.some(p => p.user_id === selectedPerson);
           const isPayer = item.rawExpense.paid_by === selectedPerson;
-          if (!isParticipant && !isPayer) return false;
+          if (!hasPerson && !isPayer) return false;
         }
       }
 
-      // Month Filter
-      if (selectedMonth !== 'all' && item.month !== selectedMonth) {
-        return false;
-      }
-
-      // Year Filter
-      if (selectedYear !== 'all' && item.year !== selectedYear) {
-        return false;
-      }
+      // Month & Year Filter
+      if (selectedMonth !== 'all' && item.month !== selectedMonth) return false;
+      if (selectedYear !== 'all' && item.year !== selectedYear) return false;
 
       // Category Filter
       if (selectedCategory !== 'all') {
@@ -278,348 +327,556 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     }
   };
 
+  // Render individual split card
+  const renderSplitCard = (exp: GroupExpense) => {
+    const paidByMe = exp.paid_by === currentUser.id;
+    const payer = appStore.profiles.find(p => p.id === exp.paid_by);
+    const payerName = payer?.full_name.split(' ')[0] || 'Friend';
+    const myPart = exp.participants.find(p => p.user_id === currentUser.id);
+    const isSettled = exp.participants.every(p => p.status === 'settled');
+
+    return (
+      <div
+        key={exp.id}
+        className={`p-5 rounded-2xl bg-slate-900 border transition-all shadow-md space-y-4 ${
+          isSettled 
+            ? 'border-slate-800 opacity-90' 
+            : 'border-slate-800 hover:border-slate-700'
+        }`}
+      >
+        {/* Split Header */}
+        <div className="flex items-start justify-between gap-3">
+          <div 
+            onClick={() => setSelectedExpense(exp)}
+            className="cursor-pointer flex-1"
+          >
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-base">🍕</span>
+              <h4 className="text-sm font-bold text-white hover:text-amber-400 transition-colors">
+                {exp.title}
+              </h4>
+              <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-medium">
+                {exp.category}
+              </span>
+              {isSettled ? (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-800 text-emerald-400 font-bold flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" /> Fully Settled
+                </span>
+              ) : (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-950/80 border border-amber-800 text-amber-400 font-bold flex items-center gap-1">
+                  <Clock className="w-3 h-3" /> Active
+                </span>
+              )}
+            </div>
+
+            <p className="text-xs text-slate-400 mt-1">
+              Total: <strong className="text-white">₹{exp.total_amount}</strong> • Created by{' '}
+              <strong className={paidByMe ? 'text-amber-400' : 'text-slate-300'}>
+                {paidByMe ? 'You' : payerName}
+              </strong> • {formatDateDisplay(exp.created_at)}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-base font-black text-amber-400">
+              ₹{exp.total_amount}
+            </span>
+
+            {paidByMe && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setEditingExpense(exp)}
+                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs transition-colors"
+                  title="Edit Split"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => handleDeleteExpense(exp.id, exp.title)}
+                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-300 text-xs transition-colors"
+                  title="Delete Split"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Participant Perspective Summary */}
+        {!paidByMe && myPart && (
+          <div className="p-3 rounded-xl bg-amber-950/20 border border-amber-800/40 flex items-center justify-between gap-3 text-xs">
+            <div>
+              <span className="text-slate-300">Your Share:</span>{' '}
+              <strong className="text-white">₹{myPart.share_amount}</strong>
+              <span className="text-slate-400 text-[11px] ml-2">
+                (You owe {payerName} ₹{myPart.share_amount})
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {myPart.status === 'settled' ? (
+                <span className="text-emerald-400 font-bold text-xs flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-950/80 border border-emerald-800">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Paid
+                </span>
+              ) : myPart.status === 'payment_claimed' ? (
+                <span className="text-amber-300 font-medium text-xs px-2.5 py-1 rounded-lg bg-amber-950/80 border border-amber-800 flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5 animate-pulse" /> Awaiting {payerName}'s confirmation
+                </span>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  {payer && (
+                    <button
+                      onClick={() => onOpenPaymentQR(payer)}
+                      className="p-1.5 rounded-lg bg-indigo-950 hover:bg-indigo-900 text-indigo-400 border border-indigo-800 text-xs font-bold"
+                      title="Pay via UPI QR"
+                    >
+                      <QrCode className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleClaimExpenseShare(exp.id, payerName)}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow transition-all active:scale-95 flex items-center gap-1"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>I've Paid ₹{myPart.share_amount}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* All Participants Breakdown */}
+        <div className="pt-2 border-t border-slate-800/80 space-y-2">
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+            <Users className="w-3 h-3 text-indigo-400" />
+            <span>Participants ({exp.participants.length})</span>
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {exp.participants.map(part => {
+              const pProfile = appStore.profiles.find(p => p.id === part.user_id);
+              const pName = pProfile?.full_name.split(' ')[0] || 'Friend';
+              const isPartSettled = part.status === 'settled';
+              const isPartClaimed = part.status === 'payment_claimed';
+              const isMe = part.user_id === currentUser.id;
+
+              return (
+                <div
+                  key={part.user_id}
+                  className="text-xs p-2.5 rounded-xl bg-slate-950 border border-slate-800/80 flex items-center justify-between gap-2"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <img
+                      src={pProfile?.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=100&q=80'}
+                      alt=""
+                      className="w-5 h-5 rounded-full object-cover shrink-0"
+                    />
+                    <span className="text-slate-300 font-medium truncate">
+                      {isMe ? 'You' : pName}: <strong className="text-white">₹{part.share_amount}</strong>
+                    </span>
+                  </div>
+
+                  <div className="shrink-0">
+                    {isPartSettled ? (
+                      <span className="text-emerald-400 font-bold text-[10px] flex items-center gap-0.5 px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-800/60">
+                        <Check className="w-3 h-3" /> Paid
+                      </span>
+                    ) : isPartClaimed ? (
+                      paidByMe ? (
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => handleConfirmExpenseShare(exp.id, part.user_id, pName)}
+                            className="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] shadow"
+                          >
+                            Confirm
+                          </button>
+                          <button
+                            onClick={() => handleRejectExpenseShare(exp.id, part.user_id, pName)}
+                            className="px-2 py-0.5 rounded bg-rose-950 hover:bg-rose-900 text-rose-300 font-bold text-[10px] border border-rose-800"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-amber-400 font-medium text-[10px] px-2 py-0.5 rounded bg-amber-950/60 border border-amber-800/60">
+                          Claimed
+                        </span>
+                      )
+                    ) : paidByMe ? (
+                      <button
+                        onClick={() => handleConfirmExpenseShare(exp.id, part.user_id, pName)}
+                        className="px-2 py-0.5 rounded bg-indigo-600/80 hover:bg-indigo-600 text-white font-bold text-[10px]"
+                      >
+                        Mark Paid
+                      </button>
+                    ) : (
+                      <span className="text-slate-400 font-medium text-[10px] px-2 py-0.5 rounded bg-slate-900 border border-slate-800">
+                        Pending
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Render individual loan card
+  const renderLoanCard = (loan: PersonalLoan) => {
+    const isLender = loan.lender_id === currentUser.id;
+    const otherProfile = appStore.profiles.find(
+      p => p.id === (isLender ? loan.borrower_id : loan.lender_id)
+    );
+    const otherName = otherProfile?.full_name.split(' ')[0] || 'Friend';
+    const isClaimed = loan.status === 'payment_claimed';
+
+    return (
+      <div
+        key={loan.id}
+        className={`p-4 rounded-2xl bg-slate-900 border transition-all shadow-md space-y-3 ${
+          isClaimed
+            ? isLender
+              ? 'border-amber-500/70 bg-amber-950/20'
+              : 'border-indigo-500/50 bg-indigo-950/20'
+            : 'border-slate-800 hover:border-slate-700'
+        }`}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div 
+            onClick={() => setSelectedLoan(loan)}
+            className="flex items-center gap-3 cursor-pointer flex-1"
+          >
+            <div className={`w-3 h-3 rounded-full shrink-0 ${isLender ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+            <div>
+              <h4 className="text-xs font-bold text-white flex items-center gap-1.5 flex-wrap">
+                {isLender ? (
+                  <span className="text-rose-400">🔴 {otherName} owes you ₹{loan.amount}</span>
+                ) : (
+                  <span className="text-amber-400">🔴 You owe {otherName} ₹{loan.amount}</span>
+                )}
+                <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-normal">
+                  {loan.category || 'Loan'}
+                </span>
+                {isClaimed && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold">
+                    ⏳ Payment Claimed
+                  </span>
+                )}
+              </h4>
+              <p className="text-[10px] text-slate-400 mt-0.5">
+                {loan.reason || 'Personal loan'} • {formatDateDisplay(loan.created_at)}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {!isLender && otherProfile && (
+              <button
+                onClick={() => onOpenPaymentQR(otherProfile)}
+                className="p-2 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-indigo-400 border border-indigo-800 text-xs font-bold transition-colors"
+                title="View Payment QR"
+              >
+                <QrCode className="w-4 h-4" />
+              </button>
+            )}
+
+            <button
+              onClick={() => setSelectedLoan(loan)}
+              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold"
+              title="View Details"
+            >
+              <Info className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Action Controls & Confirmation Box */}
+        {isLender ? (
+          isClaimed ? (
+            <div className="p-2.5 rounded-xl bg-amber-950/60 border border-amber-500/40 flex items-center justify-between gap-2">
+              <div className="text-[11px] text-amber-200">
+                <span className="font-bold">🔔 {otherName}</span> claims they sent ₹{loan.amount}.
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleConfirmLoanPayment(loan.id, otherName)}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow flex items-center gap-1"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Confirm</span>
+                </button>
+                <button
+                  onClick={() => handleRejectLoanPayment(loan.id, otherName)}
+                  className="px-2.5 py-1.5 rounded-lg bg-rose-950 hover:bg-rose-900 border border-rose-800 text-rose-300 font-bold text-xs"
+                >
+                  Reject
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex justify-end pt-1">
+              <button
+                onClick={() => handleConfirmLoanPayment(loan.id, otherName)}
+                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow flex items-center gap-1"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Mark Paid (Direct)</span>
+              </button>
+            </div>
+          )
+        ) : (
+          isClaimed ? (
+            <div className="p-2.5 rounded-xl bg-indigo-950/60 border border-indigo-500/40 text-[11px] text-indigo-200 flex items-center justify-between">
+              <span>⏳ You claimed this payment. Waiting for {otherName} to confirm receipt.</span>
+            </div>
+          ) : (
+            <div className="flex justify-end gap-2 pt-1">
+              {otherProfile && (
+                <button
+                  onClick={() => onOpenPaymentQR(otherProfile)}
+                  className="px-3 py-1.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 border border-indigo-800 text-indigo-300 text-xs font-bold flex items-center gap-1.5"
+                >
+                  <QrCode className="w-3.5 h-3.5" />
+                  <span>Pay via QR</span>
+                </button>
+              )}
+              <button
+                onClick={() => handleClaimLoanPayment(loan.id, otherName)}
+                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow flex items-center gap-1 active:scale-95 transition-all"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>I've Paid ₹{loan.amount}</span>
+              </button>
+            </div>
+          )
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6 max-w-3xl mx-auto pb-24 md:pb-12">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      {/* Top Header with Primary Actions */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-black text-white flex items-center gap-2">
             <Wallet className="w-5 h-5 text-emerald-400" />
             <span>Money & Expenses 💰</span>
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Active balances, personal loans, group splits, and complete history.
+            Real shared group splits, personal debts, and complete payment history.
           </p>
         </div>
 
-        <button
-          onClick={() => setShowAddMoneyModal(true)}
-          className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/30 transition-all flex items-center gap-1.5 active:scale-95"
-        >
-          <Plus className="w-4 h-4 stroke-[3]" />
-          <span>+ Add Money</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowAddGroupExpenseModal(true)}
+            className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs shadow-lg shadow-amber-600/30 transition-all flex items-center gap-1.5 active:scale-95"
+          >
+            <Split className="w-4 h-4 stroke-[2.5]" />
+            <span>+ Split Bill</span>
+          </button>
+
+          <button
+            onClick={() => setShowAddConversationalModal(true)}
+            className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/30 transition-all flex items-center gap-1.5 active:scale-95"
+          >
+            <HandCoins className="w-4 h-4 stroke-[2.5]" />
+            <span>+ 1-on-1 Debt</span>
+          </button>
+        </div>
       </div>
 
-      {/* Navigation Tabs: Active vs Complete History */}
-      <div className="flex p-1 bg-slate-900 border border-slate-800 rounded-2xl">
+      {/* Navigation Sub-Tabs (Overview | Split | Debts | History) */}
+      <div className="flex p-1 bg-slate-900 border border-slate-800 rounded-2xl overflow-x-auto">
         <button
-          onClick={() => setActiveTab('active')}
-          className={`flex-1 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
-            activeTab === 'active'
+          onClick={() => setActiveTab('overview')}
+          className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 whitespace-nowrap transition-all ${
+            activeTab === 'overview'
+              ? 'bg-slate-800 text-white shadow'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Zap className="w-3.5 h-3.5 text-emerald-400" />
+          <span>Overview</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('split')}
+          className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 whitespace-nowrap transition-all ${
+            activeTab === 'split'
+              ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/20'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Split className="w-3.5 h-3.5" />
+          <span>Split ({activeExpenses.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('debts')}
+          className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 whitespace-nowrap transition-all ${
+            activeTab === 'debts'
               ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20'
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
-          <Zap className="w-3.5 h-3.5" />
-          <span>Active Debts ({activeLoans.length + activeExpenses.length})</span>
+          <HandCoins className="w-3.5 h-3.5" />
+          <span>Debts ({activeLoans.length})</span>
         </button>
 
         <button
           onClick={() => setActiveTab('history')}
-          className={`flex-1 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+          className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 whitespace-nowrap transition-all ${
             activeTab === 'history'
               ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
           <History className="w-3.5 h-3.5" />
-          <span>Complete History ({loans.length + expenses.length})</span>
+          <span>History ({loans.length + expenses.length})</span>
         </button>
       </div>
 
-      {/* ==================== ACTIVE VIEW ==================== */}
-      {activeTab === 'active' && (
+      {/* ==================== OVERVIEW VIEW ==================== */}
+      {activeTab === 'overview' && (
         <div className="space-y-6 animate-in fade-in duration-200">
           {/* Main Balance Cards */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 text-slate-100 shadow-xl">
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 text-slate-100 shadow-xl">
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
                 <ArrowDownLeft className="w-3.5 h-3.5 text-rose-400" />
                 <span>You Owe</span>
               </p>
-              <p className="text-2xl font-black text-rose-400">₹{youOwe}</p>
+              <p className="text-xl sm:text-2xl font-black text-rose-400">₹{youOwe}</p>
             </div>
 
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 text-slate-100 shadow-xl">
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 text-slate-100 shadow-xl">
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
                 <ArrowUpRight className="w-3.5 h-3.5 text-emerald-400" />
                 <span>Others Owe You</span>
               </p>
-              <p className="text-2xl font-black text-emerald-400">₹{othersOweYou}</p>
+              <p className="text-xl sm:text-2xl font-black text-emerald-400">₹{othersOweYou}</p>
+            </div>
+
+            <div className="col-span-2 sm:col-span-1 bg-slate-900 border border-slate-800 rounded-2xl p-4 text-slate-100 shadow-xl">
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+                <Wallet className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Net Position</span>
+              </p>
+              <p className={`text-xl sm:text-2xl font-black ${netBalance >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {netBalance >= 0 ? `+₹${netBalance}` : `-₹${Math.abs(netBalance)}`}
+              </p>
             </div>
           </div>
 
-          {/* Active List */}
+          {/* Combined Pending List */}
           <div className="space-y-3">
-            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-              Pending Transactions
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                Active Pending Transactions ({activeLoans.length + activeExpenses.length})
+              </h3>
+            </div>
 
             {activeLoans.length === 0 && activeExpenses.length === 0 ? (
               <div className="p-8 text-center bg-slate-900 border border-slate-800 rounded-3xl text-slate-400 text-xs space-y-2">
-                <p className="text-sm font-bold text-white">No active debts 🚀</p>
-                <p className="text-slate-400">All loans and splits are fully settled. Check History for past records.</p>
+                <p className="text-sm font-bold text-white">All settled up! 🚀</p>
+                <p className="text-slate-400">No active debts or open splits. Use "+ Split Bill" or "+ 1-on-1 Debt" to create one.</p>
               </div>
             ) : (
               <div className="space-y-3">
-                {/* Active Personal Loans */}
-                {activeLoans.map(loan => {
-                  const isLender = loan.lender_id === currentUser.id;
-                  const otherProfile = appStore.profiles.find(
-                    p => p.id === (isLender ? loan.borrower_id : loan.lender_id)
-                  );
-                  const otherName = otherProfile?.full_name.split(' ')[0] || 'Friend';
-                  const isClaimed = loan.status === 'payment_claimed';
-
-                  return (
-                    <div
-                      key={loan.id}
-                      className={`p-4 rounded-2xl bg-slate-900 border transition-all shadow-md space-y-3 ${
-                        isClaimed
-                          ? isLender
-                            ? 'border-amber-500/70 bg-amber-950/20'
-                            : 'border-indigo-500/50 bg-indigo-950/20'
-                          : 'border-slate-800 hover:border-slate-700'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div 
-                          onClick={() => setSelectedLoan(loan)}
-                          className="flex items-center gap-3 cursor-pointer flex-1"
-                        >
-                          <div className={`w-3 h-3 rounded-full shrink-0 ${isLender ? 'bg-emerald-400' : 'bg-rose-400'}`} />
-                          <div>
-                            <h4 className="text-xs font-bold text-white flex items-center gap-1.5 flex-wrap">
-                              {isLender ? (
-                                <span className="text-rose-400">🔴 {otherName} owes you ₹{loan.amount}</span>
-                              ) : (
-                                <span className="text-amber-400">🔴 You owe {otherName} ₹{loan.amount}</span>
-                              )}
-                              <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-normal">
-                                {loan.category || 'Loan'}
-                              </span>
-                              {isClaimed && (
-                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold">
-                                  ⏳ Payment Claimed
-                                </span>
-                              )}
-                            </h4>
-                            <p className="text-[10px] text-slate-400 mt-0.5">
-                              {loan.reason || 'Personal loan'} • {formatDateDisplay(loan.created_at)}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2 shrink-0">
-                          {!isLender && otherProfile && (
-                            <button
-                              onClick={() => onOpenPaymentQR(otherProfile)}
-                              className="p-2 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-indigo-400 border border-indigo-800 text-xs font-bold transition-colors"
-                              title="View Payment QR"
-                            >
-                              <QrCode className="w-4 h-4" />
-                            </button>
-                          )}
-
-                          <button
-                            onClick={() => setSelectedLoan(loan)}
-                            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold"
-                            title="View Details"
-                          >
-                            <Info className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Action Controls & Confirmation Box */}
-                      {isLender ? (
-                        isClaimed ? (
-                          <div className="p-2.5 rounded-xl bg-amber-950/60 border border-amber-500/40 flex items-center justify-between gap-2">
-                            <div className="text-[11px] text-amber-200">
-                              <span className="font-bold">🔔 {otherName}</span> claims they sent ₹{loan.amount}.
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => handleConfirmLoanPayment(loan.id, otherName)}
-                                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow flex items-center gap-1"
-                              >
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>Confirm</span>
-                              </button>
-                              <button
-                                onClick={() => handleRejectLoanPayment(loan.id, otherName)}
-                                className="px-2.5 py-1.5 rounded-lg bg-rose-950 hover:bg-rose-900 border border-rose-800 text-rose-300 font-bold text-xs"
-                              >
-                                Reject
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex justify-end pt-1">
-                            <button
-                              onClick={() => handleConfirmLoanPayment(loan.id, otherName)}
-                              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow flex items-center gap-1"
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>Mark Paid (Direct)</span>
-                            </button>
-                          </div>
-                        )
-                      ) : (
-                        isClaimed ? (
-                          <div className="p-2.5 rounded-xl bg-indigo-950/60 border border-indigo-500/40 text-[11px] text-indigo-200 flex items-center justify-between">
-                            <span>⏳ You claimed this payment. Waiting for {otherName} to confirm receipt.</span>
-                          </div>
-                        ) : (
-                          <div className="flex justify-end gap-2 pt-1">
-                            {otherProfile && (
-                              <button
-                                onClick={() => onOpenPaymentQR(otherProfile)}
-                                className="px-3 py-1.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 border border-indigo-800 text-indigo-300 text-xs font-bold flex items-center gap-1.5"
-                              >
-                                <QrCode className="w-3.5 h-3.5" />
-                                <span>Pay via QR</span>
-                              </button>
-                            )}
-                            <button
-                              onClick={() => handleClaimLoanPayment(loan.id, otherName)}
-                              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow flex items-center gap-1 active:scale-95 transition-all"
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>I've Paid ₹{loan.amount}</span>
-                            </button>
-                          </div>
-                        )
-                      )}
-                    </div>
-                  );
-                })}
-
-                {/* Active Group Expenses */}
-                {activeExpenses.map(exp => {
-                  const paidByMe = exp.paid_by === currentUser.id;
-                  const payer = appStore.profiles.find(p => p.id === exp.paid_by);
-                  const payerName = payer?.full_name.split(' ')[0] || 'Friend';
-
-                  return (
-                    <div
-                      key={exp.id}
-                      className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3 shadow-md"
-                    >
-                      <div 
-                        onClick={() => setSelectedExpense(exp)}
-                        className="flex items-center justify-between cursor-pointer"
-                      >
-                        <div>
-                          <h4 className="text-xs font-bold text-white flex items-center gap-2">
-                            <span>🍕 {exp.title}</span>
-                            <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-normal">
-                              {exp.category}
-                            </span>
-                          </h4>
-                          <p className="text-[10px] text-slate-400 mt-0.5">
-                            Total ₹{exp.total_amount} • Paid by {paidByMe ? 'You' : payerName} • {formatDateDisplay(exp.created_at)}
-                          </p>
-                        </div>
-                        <span className="text-sm font-black text-amber-400">
-                          ₹{exp.total_amount}
-                        </span>
-                      </div>
-
-                      {/* Participant Shares with Claim and Settle Controls */}
-                      <div className="pt-2 border-t border-slate-800/80 flex flex-col gap-2">
-                        {exp.participants.map(part => {
-                          const pProfile = appStore.profiles.find(p => p.id === part.user_id);
-                          const pName = pProfile?.full_name.split(' ')[0] || 'Friend';
-                          const isSettled = part.status === 'settled';
-                          const isClaimed = part.status === 'payment_claimed';
-                          const isMe = part.user_id === currentUser.id;
-
-                          return (
-                            <div
-                              key={part.user_id}
-                              className="text-[11px] p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-2"
-                            >
-                              <div className="flex items-center gap-2">
-                                <img
-                                  src={pProfile?.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=100&q=80'}
-                                  alt=""
-                                  className="w-5 h-5 rounded-full object-cover"
-                                />
-                                <span className="text-slate-300 font-medium">
-                                  {isMe ? 'You' : pName}: <strong className="text-white">₹{part.share_amount}</strong>
-                                </span>
-                              </div>
-
-                              <div className="flex items-center gap-2">
-                                {isSettled ? (
-                                  <span className="text-emerald-400 font-bold text-[10px] flex items-center gap-0.5 px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-800/60">
-                                    <CheckCircle2 className="w-3 h-3" /> Paid
-                                  </span>
-                                ) : isClaimed ? (
-                                  paidByMe ? (
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="text-amber-400 font-bold text-[10px]">Claims Paid:</span>
-                                      <button
-                                        onClick={() => handleConfirmExpenseShare(exp.id, part.user_id, pName)}
-                                        className="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] shadow"
-                                      >
-                                        Confirm
-                                      </button>
-                                      <button
-                                        onClick={() => handleRejectExpenseShare(exp.id, part.user_id, pName)}
-                                        className="px-2 py-0.5 rounded bg-rose-950 hover:bg-rose-900 text-rose-300 font-bold text-[10px] border border-rose-800"
-                                      >
-                                        Reject
-                                      </button>
-                                    </div>
-                                  ) : isMe ? (
-                                    <span className="text-amber-300 font-medium text-[10px] px-2 py-0.5 rounded bg-amber-950/60 border border-amber-800/60">
-                                      ⏳ Awaiting {payerName}'s confirmation
-                                    </span>
-                                  ) : (
-                                    <span className="text-amber-400 font-medium text-[10px]">Claimed</span>
-                                  )
-                                ) : isMe && !paidByMe ? (
-                                  <div className="flex items-center gap-1.5">
-                                    {payer && (
-                                      <button
-                                        onClick={() => onOpenPaymentQR(payer)}
-                                        className="p-1 rounded bg-indigo-950 hover:bg-indigo-900 text-indigo-400 border border-indigo-800 text-[10px]"
-                                        title="Pay via UPI QR"
-                                      >
-                                        <QrCode className="w-3.5 h-3.5" />
-                                      </button>
-                                    )}
-                                    <button
-                                      onClick={() => handleClaimExpenseShare(exp.id, payerName)}
-                                      className="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] transition-all active:scale-95"
-                                    >
-                                      I've Paid My ₹{part.share_amount}
-                                    </button>
-                                  </div>
-                                ) : (
-                                  paidByMe && (
-                                    <button
-                                      onClick={() => handleConfirmExpenseShare(exp.id, part.user_id, pName)}
-                                      className="px-2 py-0.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[10px] transition-colors"
-                                    >
-                                      Mark Settle
-                                    </button>
-                                  )
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
+                {activeExpenses.map(exp => renderSplitCard(exp))}
+                {activeLoans.map(loan => renderLoanCard(loan))}
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ==================== SPLIT MONEY VIEW ==================== */}
+      {activeTab === 'split' && (
+        <div className="space-y-5 animate-in fade-in duration-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Split className="w-4 h-4 text-amber-400" />
+                <span>Shared Group Splits</span>
+              </h3>
+              <p className="text-xs text-slate-400">
+                Shared bills and party expenses with per-person breakdown.
+              </p>
+            </div>
+
+            <button
+              onClick={() => setShowAddGroupExpenseModal(true)}
+              className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs shadow flex items-center gap-1"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>New Split</span>
+            </button>
+          </div>
+
+          {splitExpenses.length === 0 ? (
+            <div className="p-8 text-center bg-slate-900 border border-slate-800 rounded-3xl text-slate-400 text-xs space-y-3">
+              <span className="text-3xl">🍕</span>
+              <p className="text-sm font-bold text-white">No Shared Splits Found</p>
+              <p className="text-slate-400 max-w-sm mx-auto">
+                Create a split bill for pizza, cabs, movies, or roommates. It will automatically sync to all participant accounts.
+              </p>
+              <button
+                onClick={() => setShowAddGroupExpenseModal(true)}
+                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs shadow inline-flex items-center gap-1.5"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Create First Split</span>
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {splitExpenses.map(exp => renderSplitCard(exp))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ==================== 1-ON-1 DEBTS VIEW ==================== */}
+      {activeTab === 'debts' && (
+        <div className="space-y-5 animate-in fade-in duration-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <HandCoins className="w-4 h-4 text-emerald-400" />
+                <span>1-on-1 Personal Debts</span>
+              </h3>
+              <p className="text-xs text-slate-400">
+                Direct money given or received between friends.
+              </p>
+            </div>
+
+            <button
+              onClick={() => setShowAddConversationalModal(true)}
+              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow flex items-center gap-1"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Debt</span>
+            </button>
+          </div>
+
+          {activeLoans.length === 0 ? (
+            <div className="p-8 text-center bg-slate-900 border border-slate-800 rounded-3xl text-slate-400 text-xs space-y-2">
+              <p className="text-sm font-bold text-white">No active 1-on-1 debts 🚀</p>
+              <p className="text-slate-400">All direct loans are settled. Tap "+ 1-on-1 Debt" to record new money given/received.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {activeLoans.map(loan => renderLoanCard(loan))}
+            </div>
+          )}
         </div>
       )}
 
@@ -662,19 +919,19 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
 
             {/* Search Input */}
             <div className="relative">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search reason, person, title, category..."
+                placeholder="Search by title, friend name, category..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                className="w-full pl-9 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs placeholder-slate-500 focus:outline-none focus:border-indigo-500"
               />
             </div>
 
-            {/* Dropdown Filters Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-              {/* Person */}
+            {/* Filter Selects Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              {/* Person Filter */}
               <div>
                 <label className="block text-[10px] text-slate-400 mb-1 font-semibold">Friend</label>
                 <select
@@ -683,15 +940,15 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   className="w-full p-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:border-indigo-500"
                 >
                   <option value="all">All Friends</option>
-                  {appStore.profiles.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.full_name} {p.id === currentUser.id && '(You)'}
-                    </option>
-                  ))}
+                  {appStore.profiles
+                    .filter(p => p.id !== currentUser.id)
+                    .map(p => (
+                      <option key={p.id} value={p.id}>{p.full_name}</option>
+                    ))}
                 </select>
               </div>
 
-              {/* Month */}
+              {/* Month Filter */}
               <div>
                 <label className="block text-[10px] text-slate-400 mb-1 font-semibold">Month</label>
                 <select
@@ -700,52 +957,11 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                   className="w-full p-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:border-indigo-500"
                 >
                   <option value="all">All Months</option>
-                  <option value="1">January</option>
-                  <option value="2">February</option>
-                  <option value="3">March</option>
-                  <option value="4">April</option>
-                  <option value="5">May</option>
-                  <option value="6">June</option>
-                  <option value="7">July</option>
-                  <option value="8">August</option>
-                  <option value="9">September</option>
-                  <option value="10">October</option>
-                  <option value="11">November</option>
-                  <option value="12">December</option>
-                </select>
-              </div>
-
-              {/* Year */}
-              <div>
-                <label className="block text-[10px] text-slate-400 mb-1 font-semibold">Year</label>
-                <select
-                  value={selectedYear}
-                  onChange={e => setSelectedYear(e.target.value)}
-                  className="w-full p-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:border-indigo-500"
-                >
-                  <option value="all">All Years</option>
-                  <option value="2026">2026</option>
-                  <option value="2025">2025</option>
-                  <option value="2024">2024</option>
-                </select>
-              </div>
-
-              {/* Category */}
-              <div>
-                <label className="block text-[10px] text-slate-400 mb-1 font-semibold">Category</label>
-                <select
-                  value={selectedCategory}
-                  onChange={e => setSelectedCategory(e.target.value)}
-                  className="w-full p-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:border-indigo-500"
-                >
-                  <option value="all">All Categories</option>
-                  <option value="Food">Food 🍔</option>
-                  <option value="Auto">Auto 🛺</option>
-                  <option value="Bus">Bus 🚌</option>
-                  <option value="Metro">Metro 🚇</option>
-                  <option value="Movie">Movie 🎬</option>
-                  <option value="Cash">Cash 💵</option>
-                  <option value="Other">Other 📦</option>
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                    <option key={m} value={String(m)}>
+                      {new Date(2025, m - 1).toLocaleString('default', { month: 'short' })}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -893,10 +1109,24 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
         onOpenPaymentQR={onOpenPaymentQR}
       />
 
+      {/* Edit Group Split Modal */}
+      <EditGroupExpenseModal
+        isOpen={Boolean(editingExpense)}
+        onClose={() => setEditingExpense(null)}
+        expense={editingExpense}
+      />
+
+      {/* Add 1-on-1 Debt Conversational Modal */}
       <AddMoneyConversationalModal
-        isOpen={showAddMoneyModal}
-        onClose={() => setShowAddMoneyModal(false)}
+        isOpen={showAddConversationalModal}
+        onClose={() => setShowAddConversationalModal(false)}
         preselectedFriend={preselectedFriendForMoney}
+      />
+
+      {/* Add Split Bill Modal */}
+      <AddGroupExpenseModal
+        isOpen={showAddGroupExpenseModal}
+        onClose={() => setShowAddGroupExpenseModal(false)}
       />
     </div>
   );

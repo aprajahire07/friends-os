@@ -110,10 +110,10 @@ export const AddGroupExpenseModal: React.FC<AddGroupExpenseModalProps> = ({ isOp
         splitMode === 'custom' ? customShares : undefined
       );
 
-      showToast('Expense Added & Persisted!', `₹${numTotal} split successfully across members.`, 'success');
+      showToast('Split Created!', `₹${numTotal} split successfully across members.`, 'success');
       onClose();
-    } catch (err) {
-      showToast('Error', 'Failed to create group expense', 'error');
+    } catch (err: any) {
+      showToast('Error', err?.message || 'Unable to create split. Please try again.', 'error');
     } finally {
       setIsSubmitting(false);
     }

@@ -920,7 +920,15 @@ export const appStore = {
       this.expenses = this.expenses.map(e => e.id === tempId ? { ...remoteExp, payer_profile: this.currentUser } : e);
       saveState('expenses', this.expenses);
       notifyListeners();
+      return remoteExp;
+    } else if (isSupabaseConfigured) {
+      // Rollback temporary optimistic state if Supabase insertion failed
+      this.expenses = this.expenses.filter(e => e.id !== tempId);
+      saveState('expenses', this.expenses);
+      notifyListeners();
+      throw new Error('Unable to create split. Please try again.');
     }
+    return newExpense;
   },
 
   async updateGroupExpense(
