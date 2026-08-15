@@ -29,6 +29,7 @@ export const AddMoneyConversationalModal: React.FC<AddMoneyConversationalModalPr
   const [selectedMultiFriendIds, setSelectedMultiFriendIds] = useState<string[]>(
     preselectedFriend ? [preselectedFriend.id] : (friends.length > 0 ? [friends[0].id] : [])
   );
+  const [includeMyself, setIncludeMyself] = useState<boolean>(true);
   const [amountStr, setAmountStr] = useState<string>('');
   const [reasonStr, setReasonStr] = useState<string>('Auto');
   const [category, setCategory] = useState<string>('Auto');
@@ -59,7 +60,6 @@ export const AddMoneyConversationalModal: React.FC<AddMoneyConversationalModalPr
 
   const handleToggleMultiFriend = (id: string) => {
     if (selectedMultiFriendIds.includes(id)) {
-      if (selectedMultiFriendIds.length === 1) return; // keep at least 1 selected
       setSelectedMultiFriendIds(selectedMultiFriendIds.filter(fId => fId !== id));
     } else {
       setSelectedMultiFriendIds([...selectedMultiFriendIds, id]);
@@ -80,6 +80,7 @@ export const AddMoneyConversationalModal: React.FC<AddMoneyConversationalModalPr
     setAmountStr('');
     setReasonStr('Auto');
     setCategory('Auto');
+    setIncludeMyself(true);
     setSelectedFriendId(preselectedFriend ? preselectedFriend.id : (friends[0]?.id || ''));
     setSelectedMultiFriendIds(preselectedFriend ? [preselectedFriend.id] : (friends.length > 0 ? [friends[0].id] : []));
     setTransactionDate(new Date().toISOString().split('T')[0]);
@@ -101,42 +102,36 @@ export const AddMoneyConversationalModal: React.FC<AddMoneyConversationalModalPr
     try {
       if (step === 'paid_for_friends') {
         if (selectedMultiFriendIds.length === 0) {
-          showToast('Select Friends', 'Please select at least one friend', 'error');
+          showToast('Select Friends', 'Please select at least one friend to split with', 'error');
           setIsSubmitting(false);
           return;
         }
 
-        // "I Paid for Friends": Current user paid => each selected friend owes their split share
-        if (selectedMultiFriendIds.length > 1) {
-          // Split total equally among selected friends
-          const perPersonShare = Math.round((amount / selectedMultiFriendIds.length) * 100) / 100;
-          for (const friendId of selectedMultiFriendIds) {
-            await appStore.addPersonalLoan(
-              friendId,
-              perPersonShare,
-              finalReason,
-              category as any,
-              currentUser.id
-            );
-          }
-          showToast(
-            'Money Recorded 💰',
-            `Recorded ₹${amount} split across ${selectedMultiFriendIds.length} friends (₹${perPersonShare} each).`,
-            'success'
-          );
-        } else {
-          const targetFriendId = selectedMultiFriendIds[0];
-          const friendObj = friends.find(f => f.id === targetFriendId);
+        // Total participants: selected friends + (1 if myself is included)
+        const totalParticipants = selectedMultiFriendIds.length + (includeMyself ? 1 : 0);
+        const perPersonShare = Math.round((amount / totalParticipants) * 100) / 100;
+
+        // Record loan for each selected friend (they owe current user their share)
+        for (const friendId of selectedMultiFriendIds) {
           await appStore.addPersonalLoan(
-            targetFriendId,
-            amount,
+            friendId,
+            perPersonShare,
             finalReason,
             category as any,
             currentUser.id
           );
+        }
+
+        if (includeMyself) {
           showToast(
             'Money Recorded 💰',
-            `Recorded: You paid ₹${amount} for ${friendObj?.full_name.split(' ')[0] || 'friend'}.`,
+            `Total ₹${amount} split among ${totalParticipants} people (₹${perPersonShare} each). Your share (₹${perPersonShare}) is paid by you, and ${selectedMultiFriendIds.length} friends owe you.`,
+            'success'
+          );
+        } else {
+          showToast(
+            'Money Recorded 💰',
+            `Total ₹${amount} split across ${selectedMultiFriendIds.length} friends (₹${perPersonShare} each).`,
             'success'
           );
         }
@@ -299,7 +294,48 @@ export const AddMoneyConversationalModal: React.FC<AddMoneyConversationalModalPr
                   )}
                 </div>
 
-                <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                  {/* Current User Option */}
+                  {currentUser && (
+                    <button
+                      type="button"
+                      id="btn-toggle-include-myself"
+                      onClick={() => setIncludeMyself(!includeMyself)}
+                      className={`w-full p-2.5 rounded-xl border flex items-center justify-between text-xs transition-all ${
+                        includeMyself
+                          ? 'bg-emerald-950/40 border-emerald-500/50 text-white font-bold'
+                          : 'bg-slate-950 border-slate-800/80 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <img
+                          src={currentUser.avatar_url}
+                          alt=""
+                          className="w-6 h-6 rounded-full object-cover border border-emerald-500/40"
+                        />
+                        <div className="text-left">
+                          <div className="flex items-center gap-1.5">
+                            <span className="block text-xs font-bold text-white">You ({currentUser.full_name.split(' ')[0]})</span>
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30">
+                              Your share is Paid
+                            </span>
+                          </div>
+                          <span className="block text-[10px] text-slate-400 font-normal">
+                            {includeMyself ? 'Included in split' : 'Not included (you paid full for friends)'}
+                          </span>
+                        </div>
+                      </div>
+                      <div
+                        className={`w-5 h-5 rounded-md border flex items-center justify-center transition-colors ${
+                          includeMyself ? 'bg-emerald-500 border-emerald-500 text-slate-950' : 'border-slate-700 bg-slate-900'
+                        }`}
+                      >
+                        {includeMyself && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                      </div>
+                    </button>
+                  )}
+
+                  {/* Friends List */}
                   {friends.map(f => {
                     const isChecked = selectedMultiFriendIds.includes(f.id);
                     return (
@@ -332,16 +368,41 @@ export const AddMoneyConversationalModal: React.FC<AddMoneyConversationalModalPr
                   })}
                 </div>
 
-                {amountStr && parseFloat(amountStr) > 0 && selectedMultiFriendIds.length > 0 && (
-                  <div className="p-2.5 rounded-xl bg-emerald-950/30 border border-emerald-800/40 text-[11px] text-emerald-300 flex items-center justify-between">
-                    <span>
-                      Split {selectedMultiFriendIds.length > 1 ? `equally among ${selectedMultiFriendIds.length} friends` : 'for 1 friend'}:
-                    </span>
-                    <strong className="text-emerald-400 font-black">
-                      ₹{(Math.round((parseFloat(amountStr) / selectedMultiFriendIds.length) * 100) / 100).toFixed(2)} / person
-                    </strong>
-                  </div>
-                )}
+                {amountStr && parseFloat(amountStr) > 0 && selectedMultiFriendIds.length > 0 && (() => {
+                  const totalCount = selectedMultiFriendIds.length + (includeMyself ? 1 : 0);
+                  const perPerson = Math.round((parseFloat(amountStr) / totalCount) * 100) / 100;
+                  const totalReceivable = Math.round((perPerson * selectedMultiFriendIds.length) * 100) / 100;
+
+                  return (
+                    <div className="p-3 rounded-2xl bg-emerald-950/30 border border-emerald-800/40 text-xs space-y-1.5">
+                      <div className="flex items-center justify-between text-emerald-300">
+                        <span>
+                          Split across <strong className="text-white">{totalCount} people</strong> {includeMyself ? '(You + friends)' : '(Friends only)'}:
+                        </span>
+                        <strong className="text-emerald-400 font-black text-sm">
+                          ₹{perPerson.toFixed(2)} / person
+                        </strong>
+                      </div>
+
+                      <div className="pt-1 border-t border-emerald-900/40 flex items-center justify-between text-[11px] text-slate-300">
+                        {includeMyself ? (
+                          <>
+                            <span className="text-emerald-400 font-semibold">
+                              ✅ Your share (₹{perPerson.toFixed(2)}): Paid
+                            </span>
+                            <span className="text-amber-300 font-semibold">
+                              🔴 Friends owe you: ₹{totalReceivable.toFixed(2)}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-amber-300 font-semibold">
+                            🔴 Friends owe you: ₹{parseFloat(amountStr).toFixed(2)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             ) : (
               <div>
