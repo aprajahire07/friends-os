@@ -541,6 +541,10 @@ DROP POLICY IF EXISTS "Expenses select" ON public.expenses;
 CREATE POLICY "Expenses select" ON public.expenses FOR SELECT USING (auth.role() = 'authenticated');
 DROP POLICY IF EXISTS "Expenses insert" ON public.expenses;
 CREATE POLICY "Expenses insert" ON public.expenses FOR INSERT WITH CHECK (auth.uid() = paid_by);
+DROP POLICY IF EXISTS "Expenses update" ON public.expenses;
+CREATE POLICY "Expenses update" ON public.expenses FOR UPDATE USING (auth.uid() = paid_by);
+DROP POLICY IF EXISTS "Expenses delete" ON public.expenses;
+CREATE POLICY "Expenses delete" ON public.expenses FOR DELETE USING (auth.uid() = paid_by);
 
 DROP POLICY IF EXISTS "Expense participants select" ON public.expense_participants;
 CREATE POLICY "Expense participants select" ON public.expense_participants FOR SELECT USING (auth.role() = 'authenticated');
@@ -548,6 +552,8 @@ DROP POLICY IF EXISTS "Expense participants insert" ON public.expense_participan
 CREATE POLICY "Expense participants insert" ON public.expense_participants FOR INSERT WITH CHECK (auth.role() = 'authenticated');
 DROP POLICY IF EXISTS "Expense participants update" ON public.expense_participants;
 CREATE POLICY "Expense participants update" ON public.expense_participants FOR UPDATE USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Expense participants delete" ON public.expense_participants;
+CREATE POLICY "Expense participants delete" ON public.expense_participants FOR DELETE USING (auth.role() = 'authenticated');
 
 DROP POLICY IF EXISTS "Loans select" ON public.loans;
 CREATE POLICY "Loans select" ON public.loans FOR SELECT USING (auth.uid() = lender_id OR auth.uid() = borrower_id);
@@ -555,6 +561,8 @@ DROP POLICY IF EXISTS "Loans insert" ON public.loans;
 CREATE POLICY "Loans insert" ON public.loans FOR INSERT WITH CHECK (auth.uid() = lender_id OR auth.uid() = borrower_id);
 DROP POLICY IF EXISTS "Loans update" ON public.loans;
 CREATE POLICY "Loans update" ON public.loans FOR UPDATE USING (auth.uid() = lender_id OR auth.uid() = borrower_id);
+DROP POLICY IF EXISTS "Loans delete" ON public.loans;
+CREATE POLICY "Loans delete" ON public.loans FOR DELETE USING (auth.uid() = lender_id OR auth.uid() = borrower_id);
 
 DROP POLICY IF EXISTS "Payment QR select" ON public.payment_qr;
 CREATE POLICY "Payment QR select" ON public.payment_qr FOR SELECT USING (auth.role() = 'authenticated');
@@ -623,7 +631,14 @@ DROP POLICY IF EXISTS "Snaps access" ON public.snaps;
 CREATE POLICY "Snaps access" ON public.snaps FOR ALL USING (auth.uid() = sender_id OR auth.uid() = receiver_id);
 
 DROP POLICY IF EXISTS "Notifications access" ON public.notifications;
-CREATE POLICY "Notifications access" ON public.notifications FOR ALL USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Notifications select" ON public.notifications;
+CREATE POLICY "Notifications select" ON public.notifications FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Notifications insert" ON public.notifications;
+CREATE POLICY "Notifications insert" ON public.notifications FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Notifications update" ON public.notifications;
+CREATE POLICY "Notifications update" ON public.notifications FOR UPDATE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Notifications delete" ON public.notifications;
+CREATE POLICY "Notifications delete" ON public.notifications FOR DELETE USING (auth.uid() = user_id);
 
 ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "App settings read" ON public.app_settings;

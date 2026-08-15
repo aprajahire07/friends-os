@@ -10,8 +10,6 @@ import {
   Search, 
   ArrowUpRight, 
   ArrowDownLeft, 
-  Calendar, 
-  User, 
   Tag, 
   Info,
   DollarSign,
@@ -44,8 +42,8 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   const store = useAppStore();
   const currentUser = store.currentUser;
 
-  // 4 Primary Views: 'overview' | 'split' | 'debts' | 'history'
-  const [activeTab, setActiveTab] = useState<'overview' | 'split' | 'debts' | 'history'>('overview');
+  // 2 Standard Tabs: 'active' | 'history'
+  const [activeTab, setActiveTab] = useState<'active' | 'history'>('active');
   
   // Modals state
   const [showAddConversationalModal, setShowAddConversationalModal] = useState(
@@ -58,8 +56,9 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   const [selectedLoan, setSelectedLoan] = useState<PersonalLoan | null>(null);
   const [selectedExpense, setSelectedExpense] = useState<GroupExpense | null>(null);
 
-  // Filters State for History & Split
+  // Filters State for Active & History
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'you_owe' | 'others_owe'>('all');
   const [selectedPerson, setSelectedPerson] = useState<string>('all');
   const [selectedMonth, setSelectedMonth] = useState<string>('all');
   const [selectedYear, setSelectedYear] = useState<string>('all');
@@ -131,13 +130,13 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
   };
 
   const handleDeleteExpense = async (expenseId: string, title: string) => {
-    if (confirm(`Are you sure you want to delete the split "${title}"?`)) {
+    if (confirm(`Are you sure you want to delete "${title}"?`)) {
       await appStore.deleteExpense(expenseId);
-      showToast('Split Deleted', `Removed "${title}" from shared money transactions.`, 'info');
+      showToast('Deleted', `Removed "${title}" from shared money transactions.`, 'info');
     }
   };
 
-  // Active Loans & Active Expenses (relevant to current user)
+  // Active Loans (1-on-1) relevant to current user
   const activeLoans = useMemo(() => {
     return loans.filter(l => 
       (l.lender_id === currentUser.id || l.borrower_id === currentUser.id) &&
@@ -145,6 +144,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     );
   }, [loans, currentUser.id]);
 
+  // Active Expenses (Group Splits) relevant to current user
   const activeExpenses = useMemo(() => {
     return expenses.filter(e => {
       const isPayer = e.paid_by === currentUser.id;
@@ -154,23 +154,79 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     });
   }, [expenses, currentUser.id]);
 
-  // Split view filtered
-  const splitExpenses = useMemo(() => {
-    return expenses.filter(e => {
-      const isPayer = e.paid_by === currentUser.id;
-      const isParticipant = e.participants.some(p => p.user_id === currentUser.id);
-      if (!isPayer && !isParticipant) return false;
+  // Combined Active Transactions filtered by search & activeFilter
+  const filteredActiveTransactions = useMemo(() => {
+    // 1. Process active loans
+    const processedLoans = activeLoans.map(loan => {
+      const isLender = loan.lender_id === currentUser.id;
+      const otherProfile = appStore.profiles.find(
+        p => p.id === (isLender ? loan.borrower_id : loan.lender_id)
+      );
+      return {
+        type: 'loan' as const,
+        id: loan.id,
+        rawLoan: loan,
+        title: loan.reason || 'Personal loan',
+        amount: loan.amount,
+        category: loan.category || 'Other',
+        created_at: loan.created_at,
+        isGave: isLender, // true = others owe you, false = you owe
+        otherPersonId: isLender ? loan.borrower_id : loan.lender_id,
+        otherPersonName: otherProfile?.full_name || 'Friend',
+      };
+    });
 
+    // 2. Process active expenses
+    const processedExpenses = activeExpenses.map(exp => {
+      const isPayer = exp.paid_by === currentUser.id;
+      const payerProfile = appStore.profiles.find(p => p.id === exp.paid_by);
+      const myPart = exp.participants.find(p => p.user_id === currentUser.id);
+      return {
+        type: 'expense' as const,
+        id: exp.id,
+        rawExpense: exp,
+        title: exp.title || 'Shared bill',
+        amount: exp.total_amount,
+        category: exp.category || 'Other',
+        created_at: exp.created_at,
+        isGave: isPayer, // true = you paid & others owe you, false = you owe payer
+        otherPersonId: exp.paid_by,
+        otherPersonName: isPayer ? 'Group Split' : (payerProfile?.full_name || 'Friend'),
+      };
+    });
+
+    const combined = [...processedExpenses, ...processedLoans].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+
+    return combined.filter(item => {
+      // Active direction filter
+      if (activeFilter === 'you_owe' && item.isGave) return false;
+      if (activeFilter === 'others_owe' && !item.isGave) return false;
+
+      // Friend filter
+      if (selectedPerson !== 'all') {
+        if (item.type === 'loan') {
+          if (item.otherPersonId !== selectedPerson) return false;
+        } else {
+          const exp = item.rawExpense;
+          const involvesFriend = exp.paid_by === selectedPerson || exp.participants.some(p => p.user_id === selectedPerson);
+          if (!involvesFriend) return false;
+        }
+      }
+
+      // Search query
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
-        const matchTitle = e.title.toLowerCase().includes(q);
-        const matchCategory = e.category.toLowerCase().includes(q);
-        if (!matchTitle && !matchCategory) return false;
+        const matchesTitle = item.title.toLowerCase().includes(q);
+        const matchesPerson = item.otherPersonName.toLowerCase().includes(q);
+        const matchesCat = item.category.toLowerCase().includes(q);
+        if (!matchesTitle && !matchesPerson && !matchesCat) return false;
       }
 
       return true;
     });
-  }, [expenses, currentUser.id, searchQuery]);
+  }, [activeLoans, activeExpenses, currentUser.id, activeFilter, selectedPerson, searchQuery]);
 
   // Filtering for History View
   const filteredHistory = useMemo(() => {
@@ -235,7 +291,9 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
       };
     });
 
-    const combined = [...processedLoans, ...processedExpenses];
+    const combined = [...processedLoans, ...processedExpenses].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
 
     return combined.filter(item => {
       // Search query
@@ -254,9 +312,9 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
         if (item.type === 'loan') {
           if (item.otherPersonId !== selectedPerson) return false;
         } else {
-          const hasPerson = item.rawExpense.participants.some(p => p.user_id === selectedPerson);
-          const isPayer = item.rawExpense.paid_by === selectedPerson;
-          if (!hasPerson && !isPayer) return false;
+          const exp = item.rawExpense;
+          const involvesFriend = exp.paid_by === selectedPerson || exp.participants.some(p => p.user_id === selectedPerson);
+          if (!involvesFriend) return false;
         }
       }
 
@@ -327,7 +385,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     }
   };
 
-  // Render individual split card
+  // Render shared split transaction card
   const renderSplitCard = (exp: GroupExpense) => {
     const paidByMe = exp.paid_by === currentUser.id;
     const payer = appStore.profiles.find(p => p.id === exp.paid_by);
@@ -338,13 +396,13 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     return (
       <div
         key={exp.id}
-        className={`p-5 rounded-2xl bg-slate-900 border transition-all shadow-md space-y-4 ${
+        className={`p-4 rounded-2xl bg-slate-900 border transition-all shadow-md space-y-3.5 ${
           isSettled 
             ? 'border-slate-800 opacity-90' 
             : 'border-slate-800 hover:border-slate-700'
         }`}
       >
-        {/* Split Header */}
+        {/* Card Header */}
         <div className="flex items-start justify-between gap-3">
           <div 
             onClick={() => setSelectedExpense(exp)}
@@ -352,11 +410,14 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
           >
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-base">🍕</span>
-              <h4 className="text-sm font-bold text-white hover:text-amber-400 transition-colors">
+              <h4 className="text-xs font-bold text-white hover:text-amber-400 transition-colors">
                 {exp.title}
               </h4>
               <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-medium">
                 {exp.category}
+              </span>
+              <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 font-bold border border-indigo-800/60">
+                Group Split
               </span>
               {isSettled ? (
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-800 text-emerald-400 font-bold flex items-center gap-1">
@@ -369,8 +430,8 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
               )}
             </div>
 
-            <p className="text-xs text-slate-400 mt-1">
-              Total: <strong className="text-white">₹{exp.total_amount}</strong> • Created by{' '}
+            <p className="text-[11px] text-slate-400 mt-1">
+              Total: <strong className="text-white">₹{exp.total_amount}</strong> • Paid by{' '}
               <strong className={paidByMe ? 'text-amber-400' : 'text-slate-300'}>
                 {paidByMe ? 'You' : payerName}
               </strong> • {formatDateDisplay(exp.created_at)}
@@ -378,7 +439,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            <span className="text-base font-black text-amber-400">
+            <span className="text-sm font-black text-amber-400">
               ₹{exp.total_amount}
             </span>
 
@@ -400,6 +461,14 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                 </button>
               </div>
             )}
+
+            <button
+              onClick={() => setSelectedExpense(exp)}
+              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs"
+              title="View Details"
+            >
+              <Info className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
 
@@ -407,7 +476,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
         {!paidByMe && myPart && (
           <div className="p-3 rounded-xl bg-amber-950/20 border border-amber-800/40 flex items-center justify-between gap-3 text-xs">
             <div>
-              <span className="text-slate-300">Your Share:</span>{' '}
+              <span className="text-slate-300 font-medium">Your Share:</span>{' '}
               <strong className="text-white">₹{myPart.share_amount}</strong>
               <span className="text-slate-400 text-[11px] ml-2">
                 (You owe {payerName} ₹{myPart.share_amount})
@@ -447,7 +516,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
           </div>
         )}
 
-        {/* All Participants Breakdown */}
+        {/* Participants Breakdown */}
         <div className="pt-2 border-t border-slate-800/80 space-y-2">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
             <Users className="w-3 h-3 text-indigo-400" />
@@ -526,14 +595,16 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
     );
   };
 
-  // Render individual loan card
+  // Render 1-on-1 personal debt transaction card
   const renderLoanCard = (loan: PersonalLoan) => {
     const isLender = loan.lender_id === currentUser.id;
     const otherProfile = appStore.profiles.find(
       p => p.id === (isLender ? loan.borrower_id : loan.lender_id)
     );
     const otherName = otherProfile?.full_name.split(' ')[0] || 'Friend';
+    const otherFullName = otherProfile?.full_name || 'Friend';
     const isClaimed = loan.status === 'payment_claimed';
+    const isPaid = loan.status === 'paid';
 
     return (
       <div
@@ -551,25 +622,42 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
             onClick={() => setSelectedLoan(loan)}
             className="flex items-center gap-3 cursor-pointer flex-1"
           >
-            <div className={`w-3 h-3 rounded-full shrink-0 ${isLender ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+            <img
+              src={otherProfile?.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=100&q=80'}
+              alt={otherFullName}
+              className="w-10 h-10 rounded-full object-cover border border-slate-700 shrink-0"
+            />
             <div>
-              <h4 className="text-xs font-bold text-white flex items-center gap-1.5 flex-wrap">
-                {isLender ? (
-                  <span className="text-rose-400">🔴 {otherName} owes you ₹{loan.amount}</span>
-                ) : (
-                  <span className="text-amber-400">🔴 You owe {otherName} ₹{loan.amount}</span>
-                )}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-sm font-black text-white">{otherFullName}</span>
+                <span className="text-sm font-black text-emerald-400">₹{loan.amount}</span>
                 <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-normal">
-                  {loan.category || 'Loan'}
+                  {loan.category || 'Other'}
                 </span>
-                {isClaimed && (
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold">
-                    ⏳ Payment Claimed
+                <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 font-bold border border-emerald-800/60">
+                  1-on-1
+                </span>
+                {isPaid ? (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-800 text-emerald-400 font-bold flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" /> Paid
+                  </span>
+                ) : isClaimed ? (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold flex items-center gap-1">
+                    <Clock className="w-3 h-3" /> ⏳ Claimed
+                  </span>
+                ) : (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-950/80 border border-rose-800 text-rose-300 font-bold flex items-center gap-1">
+                    🔴 Unpaid
                   </span>
                 )}
-              </h4>
-              <p className="text-[10px] text-slate-400 mt-0.5">
-                {loan.reason || 'Personal loan'} • {formatDateDisplay(loan.created_at)}
+              </div>
+              <p className="text-xs font-semibold text-slate-300 mt-1">
+                {isLender ? (
+                  <span className="text-emerald-300">You paid for {otherName}</span>
+                ) : (
+                  <span className="text-amber-300">{otherName} paid for you</span>
+                )}
+                <span className="text-slate-400 font-normal"> • Reason: <strong className="text-slate-200">{loan.reason || 'Expense'}</strong> • {formatDateDisplay(loan.created_at)}</span>
               </p>
             </div>
           </div>
@@ -595,7 +683,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
           </div>
         </div>
 
-        {/* Action Controls & Confirmation Box */}
+        {/* Action Controls */}
         {isLender ? (
           isClaimed ? (
             <div className="p-2.5 rounded-xl bg-amber-950/60 border border-amber-500/40 flex items-center justify-between gap-2">
@@ -625,7 +713,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                 className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow flex items-center gap-1"
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Mark Paid (Direct)</span>
+                <span>Mark Paid</span>
               </button>
             </div>
           )
@@ -669,70 +757,67 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
             <span>Money & Expenses 💰</span>
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Real shared group splits, personal debts, and complete payment history.
+            Real shared group splits, personal debts, and payment tracking.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setShowAddGroupExpenseModal(true)}
-            className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs shadow-lg shadow-amber-600/30 transition-all flex items-center gap-1.5 active:scale-95"
-          >
-            <Split className="w-4 h-4 stroke-[2.5]" />
-            <span>+ Split Bill</span>
-          </button>
-
-          <button
             onClick={() => setShowAddConversationalModal(true)}
-            className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/30 transition-all flex items-center gap-1.5 active:scale-95"
+            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/30 transition-all flex items-center gap-1.5 active:scale-95"
           >
-            <HandCoins className="w-4 h-4 stroke-[2.5]" />
-            <span>+ 1-on-1 Debt</span>
+            <Plus className="w-4 h-4 stroke-[2.5]" />
+            <span>+ Record Money / Split</span>
           </button>
         </div>
       </div>
 
-      {/* Navigation Sub-Tabs (Overview | Split | Debts | History) */}
-      <div className="flex p-1 bg-slate-900 border border-slate-800 rounded-2xl overflow-x-auto">
+      {/* Main Balance Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 text-slate-100 shadow-xl">
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+            <ArrowDownLeft className="w-3.5 h-3.5 text-rose-400" />
+            <span>You Owe</span>
+          </p>
+          <p className="text-xl sm:text-2xl font-black text-rose-400">₹{youOwe}</p>
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 text-slate-100 shadow-xl">
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+            <ArrowUpRight className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Others Owe You</span>
+          </p>
+          <p className="text-xl sm:text-2xl font-black text-emerald-400">₹{othersOweYou}</p>
+        </div>
+
+        <div className="col-span-2 sm:col-span-1 bg-slate-900 border border-slate-800 rounded-2xl p-4 text-slate-100 shadow-xl">
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+            <Wallet className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Net Position</span>
+          </p>
+          <p className={`text-xl sm:text-2xl font-black ${netBalance >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+            {netBalance >= 0 ? `+₹${netBalance}` : `-₹${Math.abs(netBalance)}`}
+          </p>
+        </div>
+      </div>
+
+      {/* Navigation Tabs (Active | History) */}
+      <div className="flex p-1 bg-slate-900 border border-slate-800 rounded-2xl">
         <button
-          onClick={() => setActiveTab('overview')}
-          className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 whitespace-nowrap transition-all ${
-            activeTab === 'overview'
+          onClick={() => setActiveTab('active')}
+          className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+            activeTab === 'active'
               ? 'bg-slate-800 text-white shadow'
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
           <Zap className="w-3.5 h-3.5 text-emerald-400" />
-          <span>Overview</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('split')}
-          className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 whitespace-nowrap transition-all ${
-            activeTab === 'split'
-              ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/20'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Split className="w-3.5 h-3.5" />
-          <span>Split ({activeExpenses.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('debts')}
-          className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 whitespace-nowrap transition-all ${
-            activeTab === 'debts'
-              ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <HandCoins className="w-3.5 h-3.5" />
-          <span>Debts ({activeLoans.length})</span>
+          <span>Active Transactions ({activeLoans.length + activeExpenses.length})</span>
         </button>
 
         <button
           onClick={() => setActiveTab('history')}
-          className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 whitespace-nowrap transition-all ${
+          className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
             activeTab === 'history'
               ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
               : 'text-slate-400 hover:text-slate-200'
@@ -743,138 +828,96 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
         </button>
       </div>
 
-      {/* ==================== OVERVIEW VIEW ==================== */}
-      {activeTab === 'overview' && (
-        <div className="space-y-6 animate-in fade-in duration-200">
-          {/* Main Balance Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 text-slate-100 shadow-xl">
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
-                <ArrowDownLeft className="w-3.5 h-3.5 text-rose-400" />
-                <span>You Owe</span>
-              </p>
-              <p className="text-xl sm:text-2xl font-black text-rose-400">₹{youOwe}</p>
-            </div>
-
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 text-slate-100 shadow-xl">
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
-                <ArrowUpRight className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Others Owe You</span>
-              </p>
-              <p className="text-xl sm:text-2xl font-black text-emerald-400">₹{othersOweYou}</p>
-            </div>
-
-            <div className="col-span-2 sm:col-span-1 bg-slate-900 border border-slate-800 rounded-2xl p-4 text-slate-100 shadow-xl">
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
-                <Wallet className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Net Position</span>
-              </p>
-              <p className={`text-xl sm:text-2xl font-black ${netBalance >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {netBalance >= 0 ? `+₹${netBalance}` : `-₹${Math.abs(netBalance)}`}
-              </p>
-            </div>
-          </div>
-
-          {/* Combined Pending List */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                Active Pending Transactions ({activeLoans.length + activeExpenses.length})
-              </h3>
-            </div>
-
-            {activeLoans.length === 0 && activeExpenses.length === 0 ? (
-              <div className="p-8 text-center bg-slate-900 border border-slate-800 rounded-3xl text-slate-400 text-xs space-y-2">
-                <p className="text-sm font-bold text-white">All settled up! 🚀</p>
-                <p className="text-slate-400">No active debts or open splits. Use "+ Split Bill" or "+ 1-on-1 Debt" to create one.</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {activeExpenses.map(exp => renderSplitCard(exp))}
-                {activeLoans.map(loan => renderLoanCard(loan))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ==================== SPLIT MONEY VIEW ==================== */}
-      {activeTab === 'split' && (
-        <div className="space-y-5 animate-in fade-in duration-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Split className="w-4 h-4 text-amber-400" />
-                <span>Shared Group Splits</span>
-              </h3>
-              <p className="text-xs text-slate-400">
-                Shared bills and party expenses with per-person breakdown.
-              </p>
-            </div>
-
-            <button
-              onClick={() => setShowAddGroupExpenseModal(true)}
-              className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs shadow flex items-center gap-1"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>New Split</span>
-            </button>
-          </div>
-
-          {splitExpenses.length === 0 ? (
-            <div className="p-8 text-center bg-slate-900 border border-slate-800 rounded-3xl text-slate-400 text-xs space-y-3">
-              <span className="text-3xl">🍕</span>
-              <p className="text-sm font-bold text-white">No Shared Splits Found</p>
-              <p className="text-slate-400 max-w-sm mx-auto">
-                Create a split bill for pizza, cabs, movies, or roommates. It will automatically sync to all participant accounts.
-              </p>
+      {/* ==================== ACTIVE VIEW ==================== */}
+      {activeTab === 'active' && (
+        <div className="space-y-4 animate-in fade-in duration-200">
+          {/* Quick Filter Bar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-slate-900/80 border border-slate-800 rounded-2xl">
+            {/* Filter Chips */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
               <button
-                onClick={() => setShowAddGroupExpenseModal(true)}
-                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs shadow inline-flex items-center gap-1.5"
+                onClick={() => setActiveFilter('all')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-colors ${
+                  activeFilter === 'all'
+                    ? 'bg-slate-800 text-white border border-slate-700'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                All Active ({activeLoans.length + activeExpenses.length})
+              </button>
+              <button
+                onClick={() => setActiveFilter('others_owe')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-colors ${
+                  activeFilter === 'others_owe'
+                    ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Others Owe You
+              </button>
+              <button
+                onClick={() => setActiveFilter('you_owe')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-colors ${
+                  activeFilter === 'you_owe'
+                    ? 'bg-rose-950/80 text-rose-400 border border-rose-800'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                You Owe
+              </button>
+            </div>
+
+            {/* Friend Filter */}
+            <div className="flex items-center gap-2">
+              <select
+                value={selectedPerson}
+                onChange={e => setSelectedPerson(e.target.value)}
+                className="p-1.5 px-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs focus:outline-none focus:border-indigo-500"
+              >
+                <option value="all">All Friends</option>
+                {appStore.profiles
+                  .filter(p => p.id !== currentUser.id)
+                  .map(p => (
+                    <option key={p.id} value={p.id}>{p.full_name}</option>
+                  ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Search Input */}
+          <div className="relative">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search active transactions..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white text-xs placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+
+          {/* Combined Active List */}
+          {filteredActiveTransactions.length === 0 ? (
+            <div className="p-8 text-center bg-slate-900 border border-slate-800 rounded-3xl text-slate-400 text-xs space-y-2">
+              <p className="text-sm font-bold text-white">All settled up! 🚀</p>
+              <p className="text-slate-400">No active pending debts or split bills matching your filter.</p>
+              <button
+                onClick={() => setShowAddConversationalModal(true)}
+                className="mt-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow inline-flex items-center gap-1.5"
               >
                 <Plus className="w-4 h-4" />
-                <span>Create First Split</span>
+                <span>Record New Money</span>
               </button>
             </div>
           ) : (
             <div className="space-y-3">
-              {splitExpenses.map(exp => renderSplitCard(exp))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ==================== 1-ON-1 DEBTS VIEW ==================== */}
-      {activeTab === 'debts' && (
-        <div className="space-y-5 animate-in fade-in duration-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <HandCoins className="w-4 h-4 text-emerald-400" />
-                <span>1-on-1 Personal Debts</span>
-              </h3>
-              <p className="text-xs text-slate-400">
-                Direct money given or received between friends.
-              </p>
-            </div>
-
-            <button
-              onClick={() => setShowAddConversationalModal(true)}
-              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow flex items-center gap-1"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add Debt</span>
-            </button>
-          </div>
-
-          {activeLoans.length === 0 ? (
-            <div className="p-8 text-center bg-slate-900 border border-slate-800 rounded-3xl text-slate-400 text-xs space-y-2">
-              <p className="text-sm font-bold text-white">No active 1-on-1 debts 🚀</p>
-              <p className="text-slate-400">All direct loans are settled. Tap "+ 1-on-1 Debt" to record new money given/received.</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {activeLoans.map(loan => renderLoanCard(loan))}
+              {filteredActiveTransactions.map(item => {
+                if (item.type === 'expense') {
+                  return renderSplitCard(item.rawExpense);
+                } else {
+                  return renderLoanCard(item.rawLoan);
+                }
+              })}
             </div>
           )}
         </div>
@@ -1063,6 +1106,9 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
                             <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">
                               {item.category}
                             </span>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-950 text-slate-400 border border-slate-800">
+                              {item.type === 'expense' ? 'Group Split' : '1-on-1'}
+                            </span>
                           </div>
 
                           <div className="text-[10px] text-slate-400 mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
@@ -1116,7 +1162,7 @@ export const ExpenseDashboard: React.FC<ExpenseDashboardProps> = ({
         expense={editingExpense}
       />
 
-      {/* Add 1-on-1 Debt Conversational Modal */}
+      {/* Add Money / Split Modal */}
       <AddMoneyConversationalModal
         isOpen={showAddConversationalModal}
         onClose={() => setShowAddConversationalModal(false)}

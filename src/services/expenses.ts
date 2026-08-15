@@ -8,6 +8,94 @@ function isValidUUID(id?: string | null): boolean {
   return UUID_REGEX.test(id);
 }
 
+/**
+ * Normalizes any category string (e.g., "Food", "🍕 Food", "Party", "Cab / Travel", "Hostel", "Rent")
+ * into a valid value that satisfies the check constraint for the 'expenses' and 'loans' tables:
+ * Allowed: 'food' | 'auto' | 'bus' | 'metro' | 'movie' | 'cash' | 'other'
+ */
+export function normalizeCategory(cat?: string): string {
+  if (!cat) return 'other';
+  const clean = cat.trim().toLowerCase();
+  
+  if (['food', 'auto', 'bus', 'metro', 'movie', 'cash', 'other'].includes(clean)) {
+    return clean;
+  }
+  
+  if (
+    clean.includes('food') || 
+    clean.includes('pizza') || 
+    clean.includes('dinner') || 
+    clean.includes('lunch') || 
+    clean.includes('party') || 
+    clean.includes('snack') || 
+    clean.includes('cafe') || 
+    clean.includes('tea') || 
+    clean.includes('coffee') || 
+    clean.includes('burger') || 
+    clean.includes('canteen')
+  ) {
+    return 'food';
+  }
+  
+  if (
+    clean.includes('auto') || 
+    clean.includes('cab') || 
+    clean.includes('travel') || 
+    clean.includes('taxi') || 
+    clean.includes('uber') || 
+    clean.includes('ola') || 
+    clean.includes('rapido') || 
+    clean.includes('rickshaw') || 
+    clean.includes('petrol') || 
+    clean.includes('fuel')
+  ) {
+    return 'auto';
+  }
+  
+  if (clean.includes('bus')) {
+    return 'bus';
+  }
+  
+  if (clean.includes('metro') || clean.includes('train') || clean.includes('rail')) {
+    return 'metro';
+  }
+  
+  if (
+    clean.includes('movie') || 
+    clean.includes('film') || 
+    clean.includes('cinema') || 
+    clean.includes('ticket') || 
+    clean.includes('theatre')
+  ) {
+    return 'movie';
+  }
+  
+  if (
+    clean.includes('cash') || 
+    clean.includes('money') || 
+    clean.includes('upi') || 
+    clean.includes('transfer')
+  ) {
+    return 'cash';
+  }
+  
+  return 'other';
+}
+
+export function formatCategoryDisplay(cat?: string): string {
+  if (!cat) return 'Other';
+  const norm = normalizeCategory(cat);
+  switch (norm) {
+    case 'food': return 'Food';
+    case 'auto': return 'Auto / Cab';
+    case 'bus': return 'Bus';
+    case 'metro': return 'Metro';
+    case 'movie': return 'Movie';
+    case 'cash': return 'Cash';
+    default: return 'Other';
+  }
+}
+
 export async function fetchExpensesFromSupabase(): Promise<GroupExpense[] | null> {
   if (!isSupabaseConfigured || !supabase) return null;
 
@@ -58,7 +146,7 @@ export async function fetchExpensesFromSupabase(): Promise<GroupExpense[] | null
       paid_by: e.paid_by,
       title: e.title || 'Expense',
       total_amount: Number(e.amount || e.total_amount || 0),
-      category: e.category || 'Other',
+      category: formatCategoryDisplay(e.category),
       participants: participantsByExpId[e.id] || [],
       created_at: e.created_at || new Date().toISOString(),
     }));
@@ -80,6 +168,8 @@ export async function addExpenseToSupabase(expense: Partial<GroupExpense>): Prom
       return null;
     }
 
+    const safeCategory = normalizeCategory(expense.category);
+
     const { data: expData, error: expError } = await supabase
       .from('expenses')
       .insert([{
@@ -87,7 +177,7 @@ export async function addExpenseToSupabase(expense: Partial<GroupExpense>): Prom
         paid_by: expense.paid_by,
         title: expense.title || 'Group Expense',
         amount: totalAmount,
-        category: expense.category || 'Other'
+        category: safeCategory
       }])
       .select()
       .single();
@@ -143,7 +233,7 @@ export async function addExpenseToSupabase(expense: Partial<GroupExpense>): Prom
       paid_by: expData.paid_by,
       title: expData.title,
       total_amount: Number(expData.amount || totalAmount),
-      category: expData.category || 'Other',
+      category: formatCategoryDisplay(expData.category),
       participants: insertedParticipants,
       created_at: expData.created_at || new Date().toISOString(),
       payer_profile: expense.payer_profile
@@ -170,7 +260,7 @@ export async function updateExpenseInSupabase(
       updated_at: new Date().toISOString()
     };
     if (updates.title !== undefined) updatePayload.title = updates.title;
-    if (updates.category !== undefined) updatePayload.category = updates.category;
+    if (updates.category !== undefined) updatePayload.category = normalizeCategory(updates.category);
     if (updates.total_amount !== undefined) updatePayload.amount = updates.total_amount;
 
     const { data: expData, error: expErr } = await supabase
@@ -232,7 +322,7 @@ export async function updateExpenseInSupabase(
       paid_by: expData.paid_by,
       title: expData.title,
       total_amount: Number(expData.amount || updates.total_amount || 0),
-      category: expData.category || 'Other',
+      category: formatCategoryDisplay(expData.category),
       participants: finalParticipants,
       created_at: expData.created_at || new Date().toISOString(),
     };
@@ -282,7 +372,7 @@ export async function fetchLoansFromSupabase(): Promise<PersonalLoan[] | null> {
       borrower_id: l.borrower_id,
       amount: Number(l.amount || 0),
       reason: l.reason || 'Personal loan',
-      category: l.category || 'Other',
+      category: formatCategoryDisplay(l.category),
       status: l.status || 'pending',
       claimed_at: l.claimed_at || null,
       paid_at: l.paid_at || null,
@@ -303,6 +393,8 @@ export async function addLoanToSupabase(loan: Partial<PersonalLoan>): Promise<Pe
       return null;
     }
 
+    const safeCategory = normalizeCategory(loan.category);
+
     const { data, error } = await supabase
       .from('loans')
       .insert([{
@@ -310,7 +402,7 @@ export async function addLoanToSupabase(loan: Partial<PersonalLoan>): Promise<Pe
         borrower_id: loan.borrower_id,
         amount: Number(loan.amount),
         reason: loan.reason || 'Personal loan',
-        category: loan.category || 'Other',
+        category: safeCategory,
         status: 'pending'
       }])
       .select()
@@ -327,7 +419,7 @@ export async function addLoanToSupabase(loan: Partial<PersonalLoan>): Promise<Pe
       borrower_id: data.borrower_id,
       amount: Number(data.amount),
       reason: data.reason,
-      category: data.category,
+      category: formatCategoryDisplay(data.category),
       status: data.status,
       claimed_at: data.claimed_at || null,
       paid_at: data.paid_at || null,
@@ -360,7 +452,7 @@ export async function updateLoanInSupabase(
     };
     if (updates.amount !== undefined) updatePayload.amount = Number(updates.amount);
     if (updates.reason !== undefined) updatePayload.reason = updates.reason;
-    if (updates.category !== undefined) updatePayload.category = updates.category;
+    if (updates.category !== undefined) updatePayload.category = normalizeCategory(updates.category);
     if (updates.borrower_id !== undefined) updatePayload.borrower_id = updates.borrower_id;
     if (updates.lender_id !== undefined) updatePayload.lender_id = updates.lender_id;
     if (updates.status !== undefined) updatePayload.status = updates.status;
@@ -383,7 +475,7 @@ export async function updateLoanInSupabase(
       borrower_id: data.borrower_id,
       amount: Number(data.amount),
       reason: data.reason,
-      category: data.category,
+      category: formatCategoryDisplay(data.category),
       status: data.status,
       claimed_at: data.claimed_at || null,
       paid_at: data.paid_at || null,

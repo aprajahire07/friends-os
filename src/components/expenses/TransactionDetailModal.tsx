@@ -153,13 +153,13 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                 <div>
                   <p className="text-xs font-bold">
                     {isPaid 
-                      ? 'Completed & Paid' 
+                      ? '✅ Completed & Paid' 
                       : isClaimed 
-                        ? 'Payment Claimed (Awaiting Approval)' 
-                        : 'Pending Payment'}
+                        ? '⏳ Payment Claimed (Awaiting Approval)' 
+                        : '🔴 Unpaid (Pending)'}
                   </p>
                   <p className="text-[10px] text-slate-400">
-                    {freshLoan.reason}
+                    {isLender ? `You paid for ${borrower?.full_name || 'friend'}` : `${lender?.full_name || 'Friend'} paid for you`} • {freshLoan.reason}
                   </p>
                 </div>
               </div>
