@@ -9,7 +9,8 @@ import {
   Loader2, 
   Check, 
   RotateCcw,
-  Sparkles,
+  Users,
+  User,
   Clock
 } from 'lucide-react';
 import { appStore } from '../../lib/store';
@@ -29,8 +30,14 @@ export const SendSnapModal: React.FC<SendSnapModalProps> = ({ recipient, isOpen,
   const currentUser = appStore.currentUser;
   const friendsList = appStore.profiles.filter(p => p.id !== currentUser.id);
 
-  const [selectedRecipientId, setSelectedRecipientId] = useState<string>(
-    recipient?.id || friendsList[0]?.id || ''
+  // Recipient selection mode: 'everyone' | 'custom'
+  const [sendToMode, setSendToMode] = useState<'everyone' | 'custom'>(
+    recipient ? 'custom' : 'everyone'
+  );
+
+  // Array of selected user IDs when mode is 'custom'
+  const [selectedRecipientIds, setSelectedRecipientIds] = useState<string[]>(
+    recipient ? [recipient.id] : (friendsList.length > 0 ? [friendsList[0].id] : [])
   );
   
   // File state
@@ -52,11 +59,13 @@ export const SendSnapModal: React.FC<SendSnapModalProps> = ({ recipient, isOpen,
   // Update selected recipient if recipient prop changes
   useEffect(() => {
     if (recipient) {
-      setSelectedRecipientId(recipient.id);
-    } else if (!selectedRecipientId && friendsList.length > 0) {
-      setSelectedRecipientId(friendsList[0].id);
+      setSendToMode('custom');
+      setSelectedRecipientIds([recipient.id]);
+    } else {
+      setSendToMode('everyone');
+      setSelectedRecipientIds(friendsList.map(f => f.id));
     }
-  }, [recipient, friendsList]);
+  }, [recipient]);
 
   // Clean up object URL on unmount or file change
   useEffect(() => {
@@ -68,6 +77,22 @@ export const SendSnapModal: React.FC<SendSnapModalProps> = ({ recipient, isOpen,
   }, [previewUrl]);
 
   if (!isOpen) return null;
+
+  const handleToggleRecipient = (friendId: string) => {
+    setSelectedRecipientIds(prev => {
+      if (prev.includes(friendId)) {
+        if (prev.length === 1) return prev; // Keep at least one
+        return prev.filter(id => id !== friendId);
+      } else {
+        return [...prev, friendId];
+      }
+    });
+  };
+
+  const handleSelectAllFriends = () => {
+    setSendToMode('everyone');
+    setSelectedRecipientIds(friendsList.map(f => f.id));
+  };
 
   const handleFileSelect = (file: File) => {
     setErrorMsg(null);
@@ -101,12 +126,16 @@ export const SendSnapModal: React.FC<SendSnapModalProps> = ({ recipient, isOpen,
     setUploadProgress(0);
   };
 
+  const targetRecipientIds = sendToMode === 'everyone' 
+    ? friendsList.map(f => f.id)
+    : selectedRecipientIds;
+
   const handleSendSnap = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
 
-    if (!selectedRecipientId) {
-      setErrorMsg('Please select a recipient friend.');
+    if (targetRecipientIds.length === 0) {
+      setErrorMsg('Please select at least one recipient friend or choose "Send to Everyone".');
       return;
     }
 
@@ -143,11 +172,17 @@ export const SendSnapModal: React.FC<SendSnapModalProps> = ({ recipient, isOpen,
 
       const storagePath = uploadRes.storagePath;
 
-      // 3. Create Snap database record
+      // 3. Create Snap database record for single or multi-recipients
       setUploadProgress(90);
-      setStatusMessage('Creating Snap record & delivering to friend...');
+      setStatusMessage(`Delivering snap to ${sendToMode === 'everyone' ? 'everyone' : `${targetRecipientIds.length} friend(s)`}...`);
 
-      const newSnap = await appStore.sendSnap(selectedRecipientId, storagePath, caption.trim() || undefined);
+      const newSnap = await appStore.sendSnap(
+        targetRecipientIds, 
+        storagePath, 
+        caption.trim() || undefined,
+        viewDuration,
+        sendToMode === 'everyone'
+      );
 
       if (!newSnap) {
         // Clean up orphaned storage file
@@ -163,8 +198,13 @@ export const SendSnapModal: React.FC<SendSnapModalProps> = ({ recipient, isOpen,
       setStatusMessage('✓ Snap sent successfully!');
       setIsSuccess(true);
 
-      const targetFriend = appStore.profiles.find(p => p.id === selectedRecipientId);
-      showToast('Snap Sent! 🔥', `Delivered disappearing snap to ${targetFriend?.full_name || 'friend'}`, 'success');
+      const targetText = sendToMode === 'everyone' 
+        ? 'Everyone in the crew 🔥' 
+        : targetRecipientIds.length === 1 
+          ? (appStore.profiles.find(p => p.id === targetRecipientIds[0])?.full_name || 'Friend')
+          : `${targetRecipientIds.length} friends`;
+
+      showToast('Snap Sent! 🔥', `Delivered 1-time disappearing snap to ${targetText}`, 'success');
 
       // Close modal smoothly after brief success animation
       setTimeout(() => {
@@ -238,21 +278,73 @@ export const SendSnapModal: React.FC<SendSnapModalProps> = ({ recipient, isOpen,
         />
 
         <form onSubmit={handleSendSnap} className="space-y-4">
-          {/* Recipient Dropdown */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">Select Recipient</label>
-            <select
-              value={selectedRecipientId}
-              onChange={e => setSelectedRecipientId(e.target.value)}
-              disabled={isUploading}
-              className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500 font-semibold"
-            >
-              {friendsList.map(p => (
-                <option key={p.id} value={p.id}>
-                  {p.full_name} (@{p.username})
-                </option>
-              ))}
-            </select>
+          {/* Recipient Mode Selection (Everyone vs Individual Friends) */}
+          <div className="space-y-2">
+            <label className="block text-xs font-semibold text-slate-300">Choose Recipients</label>
+            
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                disabled={isUploading}
+                onClick={handleSelectAllFriends}
+                className={`py-2.5 px-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                  sendToMode === 'everyone'
+                    ? 'bg-amber-500 text-slate-950 border-amber-400 font-black shadow-md'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Users className="w-4 h-4" />
+                <span>Send to Everyone ({friendsList.length})</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={isUploading}
+                onClick={() => setSendToMode('custom')}
+                className={`py-2.5 px-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                  sendToMode === 'custom'
+                    ? 'bg-amber-500 text-slate-950 border-amber-400 font-black shadow-md'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <User className="w-4 h-4" />
+                <span>Select Friends ({selectedRecipientIds.length})</span>
+              </button>
+            </div>
+
+            {/* Friend Checkbox Chips if Custom Mode */}
+            {sendToMode === 'custom' && (
+              <div className="p-3 bg-slate-950 border border-slate-800 rounded-2xl space-y-2">
+                <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
+                  Tap to select one or multiple friends:
+                </p>
+                <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto pr-1">
+                  {friendsList.map(friend => {
+                    const isSelected = selectedRecipientIds.includes(friend.id);
+                    return (
+                      <button
+                        key={friend.id}
+                        type="button"
+                        onClick={() => handleToggleRecipient(friend.id)}
+                        className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 border transition-all ${
+                          isSelected
+                            ? 'bg-amber-950/80 border-amber-500 text-amber-300'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                        }`}
+                      >
+                        <img
+                          src={friend.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80'}
+                          alt=""
+                          className="w-4 h-4 rounded-full object-cover"
+                        />
+                        <span>{friend.full_name.split(' ')[0]}</span>
+                        {isSelected && <Check className="w-3 h-3 text-amber-400" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Photo Capture / Picker Zone OR Image Preview */}
@@ -414,7 +506,7 @@ export const SendSnapModal: React.FC<SendSnapModalProps> = ({ recipient, isOpen,
           {/* Send Snap Button */}
           <button
             type="submit"
-            disabled={isUploading || !selectedFile}
+            disabled={isUploading || !selectedFile || targetRecipientIds.length === 0}
             className={`w-full py-3 rounded-xl font-black text-xs shadow-lg transition-all flex items-center justify-center gap-2 ${
               isSuccess
                 ? 'bg-emerald-500 text-slate-950 shadow-emerald-500/20'
@@ -434,7 +526,7 @@ export const SendSnapModal: React.FC<SendSnapModalProps> = ({ recipient, isOpen,
             ) : (
               <>
                 <Send className="w-4 h-4" />
-                <span>Send Snap Now</span>
+                <span>Send Snap Now ({sendToMode === 'everyone' ? 'Everyone' : `${targetRecipientIds.length} Friends`})</span>
               </>
             )}
           </button>

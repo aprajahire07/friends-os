@@ -18,7 +18,9 @@ import {
   SnapMessage, 
   AppNotification,
   ChatCategory,
-  FriendGroup
+  FriendGroup,
+  Note,
+  NoteFile
 } from '../types';
 import { resolveCollegeId, GHRCE_COLLEGE_ID, SKILLTECH_COLLEGE_ID } from './timetables';
 import { supabase, isSupabaseConfigured } from './supabase';
@@ -48,7 +50,8 @@ import {
   rejectExpenseShareClaimInSupabase
 } from '../services/expenses';
 import { fetchPlansFromSupabase, addPlanToSupabase, updatePlanRsvpInSupabase, votePollOptionInSupabase, addPollToPlanInSupabase } from '../services/plans';
-import { fetchMemoriesFromSupabase, addMemoryToSupabase } from '../services/memories';
+import { fetchMemoriesFromSupabase, addMemoryToSupabase, deleteMemoryFromSupabase } from '../services/memories';
+import { fetchNotesFromSupabase, createNoteInSupabase, deleteNoteFromSupabase, verifyNotePasswordInSupabase } from '../services/notes';
 import { fetchBorrowedItemsFromSupabase, addBorrowedItemToSupabase, markItemReturnedInSupabase } from '../services/borrowed';
 import { fetchDateAttendanceFromSupabase, markDateAttendanceInSupabase, fetchClassReportsFromSupabase, reportClassCancellationInSupabase } from '../services/attendance';
 import { fetchSnapsFromSupabase, sendSnapToSupabase, openSnapInSupabase, destroySnapInSupabase } from '../services/snaps';
@@ -62,6 +65,14 @@ import {
   isUserAdmin, 
   DEFAULT_PASSCODE_HASH 
 } from '../services/appSettings';
+import {
+  adminSetUserBanStatus,
+  adminClearCompletedMoneyHistory as apiAdminClearCompletedMoneyHistory,
+  adminInitiateUserPasswordReset as apiAdminInitiateUserPasswordReset,
+  adminChangeMemoriesPasscode as apiAdminChangeMemoriesPasscode,
+  adminToggleMemoriesLock as apiAdminToggleMemoriesLock,
+  verifyMemoriesPasscodeSecurely
+} from '../services/admin';
 
 // Helper to safely load from local storage
 function loadInitialState<T>(key: string, fallback: T): T {
@@ -103,6 +114,8 @@ export const appStore = {
   plans: loadInitialState<GroupPlan[]>('plans', []),
   borrowed: loadInitialState<BorrowedItem[]>('borrowed', []),
   memories: loadInitialState<Memory[]>('memories', []),
+  notes: loadInitialState<Note[]>('notes', []),
+  unlockedNoteIds: new Set<string>(),
   importantDates: loadInitialState<ImportantDate[]>('importantDates', []),
   timetables: loadInitialState<Timetable[]>('timetables', []),
   timetable: [] as any[],
@@ -117,7 +130,7 @@ export const appStore = {
   messageReads: loadInitialState<Record<string, string>>('messageReads', {}),
   
   // Memories Lock & Security (Admin controlled)
-  memoriesLocked: loadInitialState<boolean>('memoriesLocked', false),
+  memoriesLocked: loadInitialState<boolean>('memoriesLocked', true),
   memoriesPasscodeHash: loadInitialState<string>('memoriesPasscodeHash', DEFAULT_PASSCODE_HASH),
   sessionUnlockedMemories: false,
 
@@ -138,6 +151,7 @@ export const appStore = {
         remoteLoans,
         remotePlans,
         remoteMemories,
+        remoteNotes,
         remoteBorrowed,
         remoteAttendance,
         remoteReports,
@@ -153,6 +167,7 @@ export const appStore = {
         fetchLoansFromSupabase(),
         fetchPlansFromSupabase(),
         fetchMemoriesFromSupabase(),
+        fetchNotesFromSupabase(),
         fetchBorrowedItemsFromSupabase(),
         fetchDateAttendanceFromSupabase(this.currentUser.id, collegeId),
         fetchClassReportsFromSupabase(collegeId),
@@ -189,7 +204,7 @@ export const appStore = {
 
       if (remoteProfiles && remoteProfiles.length > 0) {
         this.profiles = remoteProfiles;
-        const currentMatched = remoteProfiles.find(p => p.id === this.currentUser?.id);
+        const currentMatched = this.profiles.find(p => p.id === this.currentUser?.id);
         if (currentMatched) {
           this.currentUser = { ...this.currentUser, ...currentMatched };
           saveState('currentUser', this.currentUser);
@@ -201,6 +216,10 @@ export const appStore = {
       if (remoteLoans) this.loans = remoteLoans;
       if (remotePlans) this.plans = remotePlans;
       if (remoteMemories) this.memories = remoteMemories;
+      if (remoteNotes) {
+        this.notes = remoteNotes;
+        saveState('notes', this.notes);
+      }
       if (remoteBorrowed) this.borrowed = remoteBorrowed;
       if (remoteAttendance) this.dateAttendanceRecords = remoteAttendance;
       if (remoteReports) this.cancellationReports = remoteReports;
@@ -220,7 +239,7 @@ export const appStore = {
       if (remoteProfiles && remoteProfiles.length > 0) {
         this.profiles = remoteProfiles;
         if (this.currentUser) {
-          const currentMatched = remoteProfiles.find(p => p.id === this.currentUser.id);
+          const currentMatched = this.profiles.find(p => p.id === this.currentUser.id);
           if (currentMatched) {
             this.currentUser = { ...this.currentUser, ...currentMatched };
             saveState('currentUser', this.currentUser);
@@ -316,12 +335,44 @@ export const appStore = {
     try {
       const remoteMemories = await fetchMemoriesFromSupabase();
       if (remoteMemories) {
-        this.memories = remoteMemories;
+        const hydrated = remoteMemories.map(m => {
+          if (!m.creator_profile) {
+            const matchedProfile = this.profiles.find(p => p.id === m.creator_id);
+            if (matchedProfile) {
+              return { ...m, creator_profile: matchedProfile };
+            }
+          }
+          return m;
+        });
+        this.memories = hydrated;
         saveState('memories', this.memories);
         notifyListeners();
       }
     } catch (err) {
       console.warn('Error syncing memories:', err);
+    }
+  },
+
+  async syncNotes() {
+    if (!isSupabaseConfigured) return;
+    try {
+      const remoteNotes = await fetchNotesFromSupabase();
+      if (remoteNotes) {
+        const hydrated = remoteNotes.map(n => {
+          if (!n.uploader_profile) {
+            const matchedProfile = this.profiles.find(p => p.id === n.uploaded_by);
+            if (matchedProfile) {
+              return { ...n, uploader_profile: matchedProfile };
+            }
+          }
+          return n;
+        });
+        this.notes = hydrated;
+        saveState('notes', this.notes);
+        notifyListeners();
+      }
+    } catch (err) {
+      console.warn('Error syncing notes:', err);
     }
   },
 
@@ -1469,9 +1520,16 @@ export const appStore = {
   },
 
   // Memories
-  async addMemory(title: string, caption: string, media_urls: string[], date: string, location?: string, tagged_user_ids: string[] = []) {
-    if (!this.currentUser) return;
-    const groupId = this.group?.id || 'main-group';
+  async addMemory(
+    title: string, 
+    caption: string, 
+    media_urls: string[], 
+    date: string, 
+    location?: string, 
+    tagged_user_ids: string[] = []
+  ): Promise<{ success: boolean; memory?: Memory; error?: string }> {
+    if (!this.currentUser) return { success: false, error: 'User not logged in' };
+    const groupId = this.group?.id;
     const tempId = `mem-${Date.now()}`;
 
     const newMem: Memory = {
@@ -1488,40 +1546,197 @@ export const appStore = {
       creator_profile: this.currentUser,
     };
 
-    this.memories = [newMem, ...this.memories];
-    saveState('memories', this.memories);
-    notifyListeners();
-    
-    this.addMessage('memories', `📸 Shared new group memory: "${title}" (${date})!`);
+    if (isSupabaseConfigured) {
+      const remoteMem = await addMemoryToSupabase({
+        group_id: groupId,
+        creator_id: this.currentUser.id,
+        title,
+        caption,
+        media_urls,
+        date,
+        location,
+        tagged_user_ids
+      });
 
-    // Notify tagged users
-    tagged_user_ids.forEach(uid => {
-      if (uid !== this.currentUser?.id) {
-        this.addNotification(
-          uid,
-          'message',
-          '🏷️ Tagged in Memory',
-          `${this.currentUser?.full_name} tagged you in a memory: "${title}".`
-        );
+      if (remoteMem) {
+        const fullMem: Memory = { ...remoteMem, creator_profile: this.currentUser };
+        this.memories = [fullMem, ...this.memories.filter(m => m.id !== tempId)];
+        saveState('memories', this.memories);
+        notifyListeners();
+
+        this.addMessage('memories', `📸 Shared new group memory: "${title}" (${date})!`);
+
+        // Notify tagged users
+        tagged_user_ids.forEach(uid => {
+          if (uid !== this.currentUser?.id) {
+            this.addNotification(
+              uid,
+              'message',
+              '🏷️ Tagged in Memory',
+              `${this.currentUser?.full_name} tagged you in a memory: "${title}".`
+            );
+          }
+        });
+
+        return { success: true, memory: fullMem };
+      } else {
+        return { success: false, error: 'Failed to persist memory to Supabase database.' };
       }
-    });
-
-    const remoteMem = await addMemoryToSupabase({
-      group_id: groupId,
-      creator_id: this.currentUser.id,
-      title,
-      caption,
-      media_urls,
-      date,
-      location,
-      tagged_user_ids
-    });
-
-    if (remoteMem) {
-      this.memories = this.memories.map(m => m.id === tempId ? { ...remoteMem, creator_profile: this.currentUser } : m);
+    } else {
+      // Local fallback mode
+      this.memories = [newMem, ...this.memories];
       saveState('memories', this.memories);
       notifyListeners();
+      
+      this.addMessage('memories', `📸 Shared new group memory: "${title}" (${date})!`);
+
+      tagged_user_ids.forEach(uid => {
+        if (uid !== this.currentUser?.id) {
+          this.addNotification(
+            uid,
+            'message',
+            '🏷️ Tagged in Memory',
+            `${this.currentUser?.full_name} tagged you in a memory: "${title}".`
+          );
+        }
+      });
+
+      return { success: true, memory: newMem };
     }
+  },
+
+  async deleteMemory(memoryId: string): Promise<boolean> {
+    if (!this.currentUser) return false;
+    const target = this.memories.find(m => m.id === memoryId);
+    
+    // Check permissions if memory exists in local state
+    if (target) {
+      const isAdmin = isUserAdmin(this.currentUser);
+      const isCreator = target.creator_id === this.currentUser.id || 
+                        target.creator_profile?.id === this.currentUser.id ||
+                        target.creator_profile?.email?.toLowerCase() === this.currentUser.email?.toLowerCase();
+
+      if (!isCreator && !isAdmin) {
+        console.warn('Unauthorized to delete this memory.');
+        return false;
+      }
+    }
+
+    // Immediately remove from store state and notify UI
+    this.memories = this.memories.filter(m => m.id !== memoryId);
+    saveState('memories', this.memories);
+    notifyListeners();
+
+    if (isSupabaseConfigured) {
+      try {
+        await deleteMemoryFromSupabase(memoryId);
+      } catch (err) {
+        console.warn('Error deleting memory from Supabase:', err);
+      }
+    }
+    return true;
+  },
+
+  // ----------------------------------------------------
+  // NOTES FEATURE (Shared Multi-Image & PDF Group Notes)
+  // ----------------------------------------------------
+  async addNote(params: {
+    caption: string;
+    files: { file: File; type: 'image' | 'pdf' }[];
+    isPasswordProtected: boolean;
+    password?: string;
+  }): Promise<{ success: boolean; note?: Note; error?: string }> {
+    if (!this.currentUser) return { success: false, error: 'User not authenticated' };
+
+    const res = await createNoteInSupabase({
+      ...params,
+      uploaderId: this.currentUser.id
+    });
+
+    if (res.success && res.note) {
+      const fullNote: Note = {
+        ...res.note,
+        uploader_profile: this.currentUser
+      };
+      this.notes = [fullNote, ...this.notes.filter(n => n.id !== fullNote.id)];
+      saveState('notes', this.notes);
+      
+      // Auto unlock in current session for the uploader
+      this.unlockedNoteIds.add(fullNote.id);
+      notifyListeners();
+      return { success: true, note: fullNote };
+    }
+
+    return res;
+  },
+
+  async deleteNote(noteId: string): Promise<boolean> {
+    if (!this.currentUser) return false;
+    const target = this.notes.find(n => n.id === noteId);
+
+    if (target) {
+      const isAdmin = isUserAdmin(this.currentUser);
+      const isUploader = target.uploaded_by === this.currentUser.id ||
+                        target.uploader_profile?.id === this.currentUser.id ||
+                        target.uploader_profile?.email?.toLowerCase() === this.currentUser.email?.toLowerCase();
+
+      if (!isUploader && !isAdmin) {
+        console.warn('Unauthorized to delete this note.');
+        return false;
+      }
+    }
+
+    this.notes = this.notes.filter(n => n.id !== noteId);
+    this.unlockedNoteIds.delete(noteId);
+    saveState('notes', this.notes);
+    notifyListeners();
+
+    if (isSupabaseConfigured) {
+      try {
+        await deleteNoteFromSupabase(noteId);
+      } catch (err) {
+        console.warn('Error deleting note from Supabase:', err);
+      }
+    }
+    return true;
+  },
+
+  async verifyAndUnlockNote(noteId: string, passwordAttempt: string): Promise<boolean> {
+    if (!this.currentUser) return false;
+    const target = this.notes.find(n => n.id === noteId);
+    if (!target) return false;
+
+    // Unprotected notes are open by default
+    if (!target.is_password_protected) {
+      this.unlockedNoteIds.add(noteId);
+      notifyListeners();
+      return true;
+    }
+
+    // Admin has Master Access: opens directly without knowing user password
+    if (isUserAdmin(this.currentUser)) {
+      this.unlockedNoteIds.add(noteId);
+      notifyListeners();
+      return true;
+    }
+
+    // Regular users: verify hash against stored hash in Supabase
+    const isMatch = await verifyNotePasswordInSupabase(noteId, passwordAttempt);
+    if (isMatch) {
+      this.unlockedNoteIds.add(noteId);
+      notifyListeners();
+      return true;
+    }
+
+    return false;
+  },
+
+  isNoteUnlocked(noteId: string): boolean {
+    const target = this.notes.find(n => n.id === noteId);
+    if (!target) return false;
+    if (!target.is_password_protected) return true;
+    if (isUserAdmin(this.currentUser)) return true;
+    return this.unlockedNoteIds.has(noteId);
   },
 
   async toggleMemoriesLock(isLocked: boolean): Promise<boolean> {
@@ -1536,8 +1751,12 @@ export const appStore = {
     saveState('memoriesLocked', this.memoriesLocked);
     notifyListeners();
 
-    await updateMemoryLockInSupabase(isLocked, this.currentUser.id, this.memoriesPasscodeHash);
+    await apiAdminToggleMemoriesLock(this.currentUser, isLocked);
     return true;
+  },
+
+  async adminToggleMemoriesLock(isLocked: boolean): Promise<boolean> {
+    return this.toggleMemoriesLock(isLocked);
   },
 
   async changeMemoriesPasscode(newPasscode: string): Promise<boolean> {
@@ -1553,22 +1772,110 @@ export const appStore = {
     saveState('memoriesPasscodeHash', this.memoriesPasscodeHash);
     notifyListeners();
 
-    await updateMemoryPasscodeInSupabase(hash, this.currentUser.id, this.memoriesLocked);
+    await apiAdminChangeMemoriesPasscode(this.currentUser, cleanPasscode);
     return true;
+  },
+
+  async adminChangeMemoriesPassword(newPasscode: string): Promise<boolean> {
+    return this.changeMemoriesPasscode(newPasscode);
   },
 
   async unlockMemoriesWithPasscode(inputPasscode: string): Promise<boolean> {
     const cleanPasscode = inputPasscode.trim();
     if (!cleanPasscode) return false;
 
-    const hash = await computeSha256(cleanPasscode);
-    const isDefaultMatch = cleanPasscode === '0000';
-    if (hash === this.memoriesPasscodeHash || isDefaultMatch) {
+    const isMatch = await verifyMemoriesPasscodeSecurely(cleanPasscode);
+    if (isMatch) {
       this.sessionUnlockedMemories = true;
       notifyListeners();
       return true;
     }
     return false;
+  },
+
+  // Admin User Ban / Unban
+  async adminBanUser(targetUserId: string, reason?: string): Promise<boolean> {
+    if (!isUserAdmin(this.currentUser)) {
+      throw new Error('Unauthorized: Admin access required.');
+    }
+    const targetUser = this.profiles.find(p => p.id === targetUserId);
+    if (!targetUser) {
+      throw new Error('Target user not found.');
+    }
+
+    const success = await adminSetUserBanStatus(this.currentUser, targetUser, true, reason);
+    if (success) {
+      this.profiles = this.profiles.map(p => 
+        p.id === targetUserId ? { ...p, is_banned: true, status: 'banned' } : p
+      );
+      if (this.currentUser.id === targetUserId) {
+        this.currentUser = { ...this.currentUser, is_banned: true, status: 'banned' };
+        saveState('currentUser', this.currentUser);
+      }
+      saveState('profiles', this.profiles);
+      notifyListeners();
+    }
+    return success;
+  },
+
+  async adminUnbanUser(targetUserId: string): Promise<boolean> {
+    if (!isUserAdmin(this.currentUser)) {
+      throw new Error('Unauthorized: Admin access required.');
+    }
+    const targetUser = this.profiles.find(p => p.id === targetUserId);
+    if (!targetUser) {
+      throw new Error('Target user not found.');
+    }
+
+    const success = await adminSetUserBanStatus(this.currentUser, targetUser, false);
+    if (success) {
+      this.profiles = this.profiles.map(p => 
+        p.id === targetUserId ? { ...p, is_banned: false, status: 'available' } : p
+      );
+      if (this.currentUser.id === targetUserId) {
+        this.currentUser = { ...this.currentUser, is_banned: false, status: 'available' };
+        saveState('currentUser', this.currentUser);
+      }
+      saveState('profiles', this.profiles);
+      notifyListeners();
+    }
+    return success;
+  },
+
+  // Admin Clear Completed Money History
+  async adminClearCompletedMoneyHistory(targetUserId: string): Promise<{ success: boolean; clearedLoansCount: number; message: string }> {
+    if (!isUserAdmin(this.currentUser)) {
+      throw new Error('Unauthorized: Admin access required.');
+    }
+    const targetUser = this.profiles.find(p => p.id === targetUserId);
+    if (!targetUser) {
+      throw new Error('Target user not found.');
+    }
+
+    const result = await apiAdminClearCompletedMoneyHistory(this.currentUser, targetUser);
+    if (result.success) {
+      // Remove paid/completed loans involving target user from store
+      this.loans = this.loans.filter(l => {
+        const isInvolved = l.lender_id === targetUserId || l.borrower_id === targetUserId;
+        const isCompleted = l.status === 'paid';
+        return !(isInvolved && isCompleted);
+      });
+      saveState('loans', this.loans);
+      notifyListeners();
+    }
+    return result;
+  },
+
+  // Admin Initiate User Password Reset
+  async adminInitiateUserPasswordReset(targetUserId: string): Promise<{ success: boolean; message: string }> {
+    if (!isUserAdmin(this.currentUser)) {
+      throw new Error('Unauthorized: Admin access required.');
+    }
+    const targetUser = this.profiles.find(p => p.id === targetUserId);
+    if (!targetUser) {
+      throw new Error('Target user not found.');
+    }
+    return apiAdminInitiateUserPasswordReset(this.currentUser, targetUser);
   },
 
   // Borrowed Tracker
@@ -1677,33 +1984,74 @@ export const appStore = {
   },
 
   // Snaps (Disappearing 1-Time Photos)
-  async sendSnap(recipient_id: string, storage_path: string, caption?: string): Promise<SnapMessage | null> {
-    if (!this.currentUser) return null;
-
-    const remoteSnap = await sendSnapToSupabase(this.currentUser.id, recipient_id, storage_path, caption);
-    if (!remoteSnap) {
+  async sendSnap(
+    recipientIdOrIds: string | string[], 
+    storage_path: string, 
+    caption?: string,
+    viewDuration: number = 5,
+    isEveryone: boolean = false
+  ): Promise<SnapMessage | null> {
+    if (!this.currentUser) {
+      console.warn('[Snap Send] No active current user');
       return null;
     }
 
-    const newSnap: SnapMessage = {
-      ...remoteSnap,
-      sender_profile: this.currentUser,
-    };
+    let recipientIds: string[] = [];
+    if (isEveryone) {
+      // Dynamically query all eligible group members / profiles except the sender
+      recipientIds = this.profiles
+        .filter(p => p.id !== this.currentUser.id && !p.is_banned)
+        .map(p => p.id);
+    } else {
+      recipientIds = Array.isArray(recipientIdOrIds)
+        ? recipientIdOrIds.filter(id => id && id !== this.currentUser.id)
+        : (recipientIdOrIds && recipientIdOrIds !== this.currentUser.id ? [recipientIdOrIds] : []);
+    }
 
-    this.snaps = [newSnap, ...this.snaps.filter(s => s.id !== remoteSnap.id)];
+    if (recipientIds.length === 0) {
+      console.warn('[Snap Send] No eligible recipients found for sender:', this.currentUser.id);
+      return null;
+    }
+
+    const sendResult = await sendSnapToSupabase(
+      this.currentUser.id, 
+      recipientIds, 
+      storage_path, 
+      caption, 
+      viewDuration, 
+      isEveryone || recipientIds.length > 1
+    );
+
+    if (!sendResult.success || !sendResult.snap) {
+      console.error('[Snap Send] Supabase delivery failed:', sendResult.error);
+      return null;
+    }
+
+    const createdList = sendResult.snaps && sendResult.snaps.length > 0 ? sendResult.snaps : [sendResult.snap];
+    const newSnaps: SnapMessage[] = createdList.map(s => ({
+      ...s,
+      sender_profile: this.currentUser,
+    }));
+
+    const createdIds = new Set(newSnaps.map(s => s.id));
+    this.snaps = [...newSnaps, ...this.snaps.filter(s => !createdIds.has(s.id))];
     saveState('snaps', this.snaps);
     notifyListeners();
 
-    // Add recipient notification
-    this.addNotification(
-      recipient_id, 
-      'snap', 
-      '📸 New Disappearing Snap', 
-      `${this.currentUser.full_name} sent you a snap. Tap to view once.`,
-      remoteSnap.id
-    );
+    // Add recipient notification for each recipient
+    newSnaps.forEach(snapItem => {
+      if (snapItem.recipient_id) {
+        this.addNotification(
+          snapItem.recipient_id, 
+          'snap', 
+          '📸 New Disappearing Snap', 
+          `${this.currentUser?.full_name || 'A friend'} sent you a snap. Tap to view once.`,
+          snapItem.id
+        );
+      }
+    });
 
-    return newSnap;
+    return newSnaps[0];
   },
 
   async openSnap(snapId: string) {
@@ -1722,7 +2070,9 @@ export const appStore = {
     saveState('snaps', this.snaps);
     notifyListeners();
 
-    await openSnapInSupabase(snapId);
+    if (this.currentUser) {
+      await openSnapInSupabase(snapId, this.currentUser.id);
+    }
 
     if (targetSnap && this.currentUser && targetSnap.sender_id !== this.currentUser.id) {
       this.addNotification(
@@ -1751,7 +2101,9 @@ export const appStore = {
     saveState('snaps', this.snaps);
     notifyListeners();
 
-    await destroySnapInSupabase(snapId);
+    if (this.currentUser) {
+      await destroySnapInSupabase(snapId, this.currentUser.id);
+    }
   },
 
   // Notifications

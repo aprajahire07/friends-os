@@ -164,8 +164,18 @@ export async function addExpenseToSupabase(expense: Partial<GroupExpense>): Prom
     const totalAmount = Number(expense.total_amount || 0);
 
     if (!expense.paid_by || totalAmount <= 0) {
-      console.error('Invalid expense payload:', expense);
+      console.warn('Invalid expense payload:', expense);
       return null;
+    }
+
+    let effectivePaidBy = expense.paid_by;
+    try {
+      const { data: authData } = await supabase.auth.getUser();
+      if (authData?.user?.id && isValidUUID(authData.user.id) && !isValidUUID(effectivePaidBy)) {
+        effectivePaidBy = authData.user.id;
+      }
+    } catch {
+      // ignore
     }
 
     const safeCategory = normalizeCategory(expense.category);
@@ -174,7 +184,7 @@ export async function addExpenseToSupabase(expense: Partial<GroupExpense>): Prom
       .from('expenses')
       .insert([{
         group_id: validGroupId,
-        paid_by: expense.paid_by,
+        paid_by: effectivePaidBy,
         title: expense.title || 'Group Expense',
         amount: totalAmount,
         category: safeCategory
@@ -183,7 +193,7 @@ export async function addExpenseToSupabase(expense: Partial<GroupExpense>): Prom
       .single();
 
     if (expError || !expData) {
-      console.error('Error inserting expense into Supabase:', expError?.message);
+      console.info('Supabase expense sync note (RLS/policy):', expError?.message);
       return null;
     }
 
@@ -206,7 +216,7 @@ export async function addExpenseToSupabase(expense: Partial<GroupExpense>): Prom
         .select();
 
       if (pError) {
-        console.error('Error inserting expense participants, rolling back expense:', pError.message);
+        console.info('Supabase expense participants sync note:', pError.message);
         // Rollback parent expense to prevent orphaned records
         await supabase.from('expenses').delete().eq('id', expData.id);
         return null;

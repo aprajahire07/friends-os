@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Users, ChevronDown, LogOut, User, Settings, Sparkles } from 'lucide-react';
+import { Users, ChevronDown, LogOut, User, Settings, Sparkles, ShieldCheck } from 'lucide-react';
 import { appStore, useAppStore } from '../../lib/store';
 import { useToast } from '../ui/Toast';
 import { StatusPicker } from '../friends/StatusPicker';
+import { isUserAdmin } from '../../services/appSettings';
 
 interface NavbarProps {
   activeTab: string;
@@ -17,6 +18,8 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenO
   const currentUser = appStore.currentUser;
 
   if (!currentUser) return null;
+
+  const isAdmin = isUserAdmin(currentUser);
 
   const handleLogout = () => {
     setShowUserDropdown(false);
@@ -68,16 +71,31 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenO
 
           {/* User Account Menu */}
           {showUserDropdown && (
-            <div className="absolute right-0 mt-2 w-56 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-2 z-50 text-xs">
+            <div className="absolute right-0 mt-2 w-60 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-2 z-50 text-xs animate-in fade-in zoom-in-95 duration-150">
               <div className="px-3 py-2 border-b border-slate-800/80 mb-1">
                 <p className="font-bold text-white text-xs truncate">{currentUser.full_name}</p>
                 <p className="text-[11px] text-slate-400 font-mono truncate">@{currentUser.username}</p>
-                <span className="inline-block mt-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-indigo-950 border border-indigo-800 text-indigo-400 uppercase">
-                  {currentUser.role || 'Member'}
+                <span className={`inline-block mt-1 text-[9px] font-bold px-2 py-0.5 rounded-full uppercase ${
+                  isAdmin ? 'bg-indigo-950 border border-indigo-800 text-indigo-400' : 'bg-slate-800 border border-slate-700 text-slate-300'
+                }`}>
+                  {isAdmin ? '⚙️ Admin' : '👤 Member'}
                 </span>
               </div>
 
               <div className="space-y-0.5">
+                {isAdmin && (
+                  <button
+                    onClick={() => {
+                      setShowUserDropdown(false);
+                      setActiveTab('admin');
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-indigo-300 hover:bg-indigo-950/60 hover:text-white transition-colors text-left font-bold"
+                  >
+                    <ShieldCheck className="w-4 h-4 text-indigo-400" />
+                    <span>⚙️ Admin Control Center</span>
+                  </button>
+                )}
+
                 <button
                   onClick={() => {
                     setShowUserDropdown(false);

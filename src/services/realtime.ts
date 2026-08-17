@@ -138,9 +138,37 @@ export function subscribeToAllRealtimeTables(
     )
     .on(
       'postgres_changes',
+      { event: '*', schema: 'public', table: 'memory_photos' },
+      () => {
+        appStore.syncMemories();
+      }
+    )
+    .on(
+      'postgres_changes',
       { event: '*', schema: 'public', table: 'memory_media' },
       () => {
         appStore.syncMemories();
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'memory_tags' },
+      () => {
+        appStore.syncMemories();
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'notes' },
+      () => {
+        appStore.syncNotes();
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'note_files' },
+      () => {
+        appStore.syncNotes();
       }
     )
     .on(
@@ -167,6 +195,13 @@ export function subscribeToAllRealtimeTables(
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'snaps' },
+      () => {
+        appStore.syncSnaps();
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'snap_recipients' },
       () => {
         appStore.syncSnaps();
       }

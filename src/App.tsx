@@ -11,6 +11,7 @@ import { MemoryGallery } from './components/memories/MemoryGallery';
 import { SnapsFeed } from './components/snaps/SnapsFeed';
 import { BorrowedTracker } from './components/borrowed/BorrowedTracker';
 import { CollegeClassesTab } from './components/college/CollegeClassesTab';
+import { NotesList } from './components/notes/NotesList';
 import { MeTab } from './components/profile/MeTab';
 import { PaymentQRModal } from './components/expenses/PaymentQRModal';
 import { FriendProfileModal } from './components/friends/FriendProfileModal';
@@ -21,12 +22,15 @@ import { UploadMemoryModal } from './components/memories/UploadMemoryModal';
 import { AddBorrowedItemModal } from './components/borrowed/AddBorrowedItemModal';
 import { OnboardingModal } from './components/auth/OnboardingModal';
 import { AuthModal } from './components/auth/AuthModal';
+import { BannedAccountView } from './components/auth/BannedAccountView';
+import { AdminDashboard } from './components/admin/AdminDashboard';
 import { ToastProvider, useToast } from './components/ui/Toast';
 import { Profile } from './types';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { appStore, useAppStore } from './lib/store';
 import { subscribeToAllRealtimeTables } from './services/realtime';
 import { fetchProfileById } from './services/profiles';
+import { isUserAdmin } from './services/appSettings';
 import { Loader2 } from 'lucide-react';
 
 export function AppContent() {
@@ -159,7 +163,19 @@ export function AppContent() {
     );
   }
 
-  // 3. Authenticated Application
+  const isAdminUser = isUserAdmin(currentUser);
+
+  // 3. Security Check: Banned user account block
+  if (currentUser.is_banned && !isAdminUser) {
+    return <BannedAccountView userEmail={currentUser.email} userName={currentUser.full_name} />;
+  }
+
+  // 4. Route Protection for Admin Tab
+  if (activeTab === 'admin' && !isAdminUser) {
+    setActiveTab('home');
+  }
+
+  // 5. Authenticated Application
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
       <Navbar
@@ -217,12 +233,18 @@ export function AppContent() {
 
           {activeTab === 'college' && <CollegeClassesTab />}
 
+          {activeTab === 'notes' && <NotesList />}
+
           {activeTab === 'me' && (
             <MeTab
               onSelectTab={setActiveTab}
               onOpenPaymentQR={handleOpenPaymentQR}
               onOpenOnboarding={() => setShowOnboardingModal(true)}
             />
+          )}
+
+          {activeTab === 'admin' && isAdminUser && (
+            <AdminDashboard onBackToHome={() => setActiveTab('home')} />
           )}
         </main>
       </div>

@@ -218,8 +218,9 @@ export const FileUpload: React.FC<FileUploadProps> = ({
       }
     }
 
-    if (onUploadComplete && completedPaths.length > 0) {
-      onUploadComplete(completedPaths);
+    const allSuccessfulPaths = allCurrent.map(i => i.storagePath).filter(Boolean) as string[];
+    if (onUploadComplete && allSuccessfulPaths.length > 0) {
+      onUploadComplete(allSuccessfulPaths);
     }
     if (onFilesSelected) {
       onFilesSelected(allCurrent);

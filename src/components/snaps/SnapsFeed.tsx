@@ -10,7 +10,9 @@ import {
   EyeOff, 
   Loader2, 
   AlertCircle,
-  Camera
+  Camera,
+  Users,
+  UserCheck
 } from 'lucide-react';
 import { appStore, useAppStore } from '../../lib/store';
 import { SnapMessage, Profile } from '../../types';
@@ -51,7 +53,8 @@ export const SnapsFeed: React.FC = () => {
     let isCancelled = false;
     setIsImageLoading(true);
     setImageLoadError(null);
-    setTimeLeft(5);
+    const duration = activeSnapToView.view_duration || 5;
+    setTimeLeft(duration);
 
     // Resolve secure signed URL from private Supabase Storage
     const storagePath = activeSnapToView.image_url;
@@ -110,13 +113,9 @@ export const SnapsFeed: React.FC = () => {
 
   const handleOpenSnap = (snap: SnapMessage) => {
     // If receiver already opened, reject one-time view
-    if (snap.status === 'opened' && snap.recipient_id === currentUser.id) {
+    const isReceiver = snap.sender_id !== currentUser?.id;
+    if (isReceiver && (snap.status === 'opened' || snap.status === 'expired')) {
       showToast('Snap Expired', 'You have already viewed this snap once.', 'info');
-      return;
-    }
-
-    if (snap.status === 'expired') {
-      showToast('Snap Expired', 'This snap has expired.', 'info');
       return;
     }
 
@@ -139,6 +138,10 @@ export const SnapsFeed: React.FC = () => {
     setShowSendModal(true);
   };
 
+  // Filter into received vs sent snaps
+  const receivedSnaps = snaps.filter(s => s.sender_id !== currentUser?.id);
+  const sentSnaps = snaps.filter(s => s.sender_id === currentUser?.id);
+
   return (
     <div className="space-y-6 pb-20 md:pb-8">
       {/* Header */}
@@ -149,7 +152,7 @@ export const SnapsFeed: React.FC = () => {
             <span>Snaps & Daily Streaks</span>
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Keep streaks alive with 1-time ephemeral photo snaps.
+            Keep streaks alive with 1-time ephemeral photo snaps sent to anyone or everyone.
           </p>
         </div>
 
@@ -205,27 +208,34 @@ export const SnapsFeed: React.FC = () => {
         </div>
       </div>
 
-      {/* Snaps Inbox & Sent History */}
+      {/* Received Snaps Feed */}
       <div className="space-y-3">
-        <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Snap Feed & Inbox</h3>
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+            <span>Inbox (Received Snaps)</span>
+            {receivedSnaps.filter(s => s.status !== 'opened' && s.status !== 'expired').length > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 font-black text-[10px]">
+                {receivedSnaps.filter(s => s.status !== 'opened' && s.status !== 'expired').length} New
+              </span>
+            )}
+          </h3>
+        </div>
 
-        {snaps.length === 0 ? (
-          <div className="p-8 text-center bg-slate-900 border border-slate-800 rounded-2xl text-slate-500 text-xs">
-            No snaps yet. Tap "New Snap" above to send a photo to your crew!
+        {receivedSnaps.length === 0 ? (
+          <div className="p-6 text-center bg-slate-900 border border-slate-800 rounded-2xl text-slate-500 text-xs">
+            No received snaps in inbox yet.
           </div>
         ) : (
-          snaps.map(snap => {
-            const isSender = snap.sender_id === currentUser.id;
-            const otherPersonId = isSender ? snap.recipient_id : snap.sender_id;
-            const otherPerson = appStore.profiles.find(p => p.id === otherPersonId);
+          receivedSnaps.map(snap => {
+            const sender = appStore.profiles.find(p => p.id === snap.sender_id);
             const isOpened = snap.status === 'opened' || snap.status === 'expired';
 
             return (
               <div
                 key={snap.id}
-                onClick={() => !isSender && !isOpened && handleOpenSnap(snap)}
+                onClick={() => !isOpened && handleOpenSnap(snap)}
                 className={`p-4 rounded-2xl border transition-all flex items-center justify-between gap-3 ${
-                  !isSender && !isOpened
+                  !isOpened
                     ? 'bg-amber-950/40 border-amber-500/60 shadow-lg cursor-pointer hover:bg-amber-900/40'
                     : 'bg-slate-900 border-slate-800 text-slate-300'
                 }`}
@@ -233,63 +243,145 @@ export const SnapsFeed: React.FC = () => {
                 <div className="flex items-center gap-3">
                   <div className="relative">
                     <img
-                      src={otherPerson?.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80'}
+                      src={sender?.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80'}
                       alt=""
                       className="w-10 h-10 rounded-full object-cover border border-slate-700"
                     />
-                    {!isSender && !isOpened && (
+                    {!isOpened && (
                       <span className="absolute -top-1 -right-1 w-3 h-3 bg-amber-400 rounded-full animate-ping" />
                     )}
                   </div>
 
                   <div>
-                    <h4 className="text-xs font-bold text-white">
-                      {isSender 
-                        ? `Sent to ${otherPerson?.full_name || 'Friend'}` 
-                        : `📸 New Snap from ${otherPerson?.full_name || 'Friend'}`
-                      }
+                    <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
+                      <span>📸 New Snap from {sender?.full_name || 'Friend'}</span>
+                      {snap.is_everyone && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 font-normal">
+                          Crew Broadcast
+                        </span>
+                      )}
                     </h4>
                     <p className="text-[10px] text-slate-400 mt-0.5 font-mono">
-                      {new Date(snap.sent_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • 1-Time View
+                      {new Date(snap.sent_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • 1-Time View ({snap.view_duration || 5}s)
                     </p>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {isSender ? (
-                    <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border flex items-center gap-1 ${
+                  <button
+                    type="button"
+                    disabled={isOpened}
+                    onClick={() => !isOpened && handleOpenSnap(snap)}
+                    className={`text-[10px] font-bold px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all ${
                       isOpened
+                        ? 'bg-slate-950 text-slate-500 border border-slate-800 cursor-not-allowed'
+                        : 'bg-amber-500 hover:bg-amber-400 text-slate-950 font-black shadow-lg shadow-amber-500/20 animate-pulse'
+                    }`}
+                  >
+                    {isOpened ? (
+                      <>
+                        <Eye className="w-3 h-3" />
+                        <span>Opened</span>
+                      </>
+                    ) : (
+                      <>
+                        <Camera className="w-3 h-3" />
+                        <span>Tap to View</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Sent Snaps Feed */}
+      <div className="space-y-3">
+        <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Sent Snaps</h3>
+
+        {sentSnaps.length === 0 ? (
+          <div className="p-6 text-center bg-slate-900 border border-slate-800 rounded-2xl text-slate-500 text-xs">
+            No sent snaps yet. Tap "New Snap" to start!
+          </div>
+        ) : (
+          sentSnaps.map(snap => {
+            const hasRecipients = snap.recipients && snap.recipients.length > 0;
+            const singleRecipient = appStore.profiles.find(p => p.id === snap.recipient_id);
+
+            return (
+              <div
+                key={snap.id}
+                className="p-4 rounded-2xl bg-slate-900 border border-slate-800 text-slate-300 space-y-2"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-xl bg-slate-950 border border-slate-800 text-amber-400">
+                      {snap.is_everyone ? <Users className="w-4 h-4" /> : <Camera className="w-4 h-4" />}
+                    </div>
+
+                    <div>
+                      <h4 className="text-xs font-bold text-white">
+                        {snap.is_everyone 
+                          ? `Broadcast to Everyone (${snap.recipients?.length || 'All'} friends)`
+                          : `Sent to ${singleRecipient?.full_name || 'Friend'}`
+                        }
+                      </h4>
+                      <p className="text-[10px] text-slate-400 font-mono">
+                        {new Date(snap.sent_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {snap.view_duration || 5}s Timer
+                        {snap.caption && ` • "${snap.caption}"`}
+                      </p>
+                    </div>
+                  </div>
+
+                  {!hasRecipients && (
+                    <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border flex items-center gap-1 ${
+                      snap.status === 'opened'
                         ? 'bg-indigo-950/60 border-indigo-800 text-indigo-300'
                         : 'bg-slate-950 border-slate-800 text-slate-400'
                     }`}>
-                      {isOpened ? <Eye className="w-3 h-3 text-indigo-400" /> : <EyeOff className="w-3 h-3 text-slate-400" />}
-                      <span>{isOpened ? '✓ Opened' : '✓ Sent'}</span>
+                      {snap.status === 'opened' ? <Eye className="w-3 h-3 text-indigo-400" /> : <EyeOff className="w-3 h-3 text-slate-400" />}
+                      <span>{snap.status === 'opened' ? '✓ Opened' : '✓ Sent'}</span>
                     </span>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={isOpened}
-                      onClick={() => !isOpened && handleOpenSnap(snap)}
-                      className={`text-[10px] font-bold px-3 py-1 rounded-full flex items-center gap-1 transition-all ${
-                        isOpened
-                          ? 'bg-slate-950 text-slate-500 border border-slate-800 cursor-not-allowed'
-                          : 'bg-amber-500 hover:bg-amber-400 text-slate-950 font-black shadow-lg shadow-amber-500/20 animate-pulse'
-                      }`}
-                    >
-                      {isOpened ? (
-                        <>
-                          <Eye className="w-3 h-3" />
-                          <span>Opened</span>
-                        </>
-                      ) : (
-                        <>
-                          <Camera className="w-3 h-3" />
-                          <span>Tap to View</span>
-                        </>
-                      )}
-                    </button>
                   )}
                 </div>
+
+                {/* Per-recipient status list if multi-recipient */}
+                {hasRecipients && (
+                  <div className="pt-2 border-t border-slate-800/80 flex flex-wrap gap-2">
+                    {snap.recipients?.map(rec => {
+                      const friend = appStore.profiles.find(p => p.id === rec.recipient_id);
+                      const isRecOpened = rec.status === 'opened' || rec.status === 'expired';
+                      return (
+                        <div
+                          key={rec.recipient_id}
+                          className={`px-2.5 py-1 rounded-xl text-[11px] font-semibold flex items-center gap-1.5 border ${
+                            isRecOpened
+                              ? 'bg-indigo-950/40 border-indigo-800 text-indigo-300'
+                              : 'bg-slate-950 border-slate-800 text-slate-400'
+                          }`}
+                        >
+                          <img
+                            src={friend?.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80'}
+                            alt=""
+                            className="w-3.5 h-3.5 rounded-full object-cover"
+                          />
+                          <span>{friend?.full_name.split(' ')[0] || 'Friend'}</span>
+                          {isRecOpened ? (
+                            <span className="text-[10px] text-indigo-400 flex items-center gap-0.5 font-mono">
+                              <Eye className="w-2.5 h-2.5" /> Opened
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-500 font-mono">
+                              Delivered
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             );
           })
@@ -304,7 +396,7 @@ export const SnapsFeed: React.FC = () => {
             <div className="absolute top-0 inset-x-0 h-1.5 bg-slate-800 z-20">
               <div
                 className="h-full bg-amber-400 transition-all duration-1000 ease-linear"
-                style={{ width: isImageLoading ? '100%' : `${(timeLeft / 5) * 100}%` }}
+                style={{ width: isImageLoading ? '100%' : `${(timeLeft / (activeSnapToView.view_duration || 5)) * 100}%` }}
               />
             </div>
 

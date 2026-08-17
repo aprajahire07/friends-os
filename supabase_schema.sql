@@ -267,7 +267,7 @@ CREATE TABLE IF NOT EXISTS public.poll_votes (
   UNIQUE(poll_id, user_id)
 );
 
--- 7. MEMORIES & MEDIA & TAGS
+-- 7. MEMORIES & PHOTOS & MEDIA & TAGS
 CREATE TABLE IF NOT EXISTS public.memories (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   group_id UUID REFERENCES public.friend_groups(id) ON DELETE CASCADE,
@@ -278,6 +278,14 @@ CREATE TABLE IF NOT EXISTS public.memories (
   location TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.memory_photos (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  memory_id UUID REFERENCES public.memories(id) ON DELETE CASCADE,
+  storage_path TEXT NOT NULL,
+  display_order INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS public.memory_media (
@@ -422,14 +430,28 @@ CREATE TABLE IF NOT EXISTS public.class_reports (
 CREATE TABLE IF NOT EXISTS public.snaps (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   sender_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
-  receiver_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  receiver_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  is_everyone BOOLEAN DEFAULT FALSE,
   storage_path TEXT NOT NULL,
   caption TEXT,
+  view_duration INTEGER DEFAULT 5,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   delivered_at TIMESTAMPTZ,
   opened_at TIMESTAMPTZ,
   expires_at TIMESTAMPTZ,
   status TEXT DEFAULT 'sent' CHECK (status IN ('sent', 'delivered', 'opened', 'expired'))
+);
+
+CREATE TABLE IF NOT EXISTS public.snap_recipients (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  snap_id UUID REFERENCES public.snaps(id) ON DELETE CASCADE,
+  recipient_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  status TEXT DEFAULT 'sent' CHECK (status IN ('sent', 'delivered', 'opened', 'expired')),
+  delivered_at TIMESTAMPTZ DEFAULT NOW(),
+  opened_at TIMESTAMPTZ,
+  expires_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(snap_id, recipient_id)
 );
 
 -- 12. NOTIFICATIONS
@@ -460,7 +482,11 @@ CREATE INDEX IF NOT EXISTS idx_class_reports_college_date ON public.class_report
 CREATE INDEX IF NOT EXISTS idx_plans_group_date ON public.plans(group_id, plan_date);
 CREATE INDEX IF NOT EXISTS idx_expenses_group ON public.expenses(group_id);
 CREATE INDEX IF NOT EXISTS idx_loans_users ON public.loans(lender_id, borrower_id);
+CREATE INDEX IF NOT EXISTS idx_snaps_sender ON public.snaps(sender_id);
 CREATE INDEX IF NOT EXISTS idx_snaps_receiver ON public.snaps(receiver_id, status);
+CREATE INDEX IF NOT EXISTS idx_snaps_is_everyone ON public.snaps(is_everyone);
+CREATE INDEX IF NOT EXISTS idx_snap_recipients_snap ON public.snap_recipients(snap_id);
+CREATE INDEX IF NOT EXISTS idx_snap_recipients_user ON public.snap_recipients(recipient_id, status);
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON public.notifications(user_id, is_read);
 
 -- ROW LEVEL SECURITY (RLS)
@@ -483,6 +509,7 @@ ALTER TABLE public.polls ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.poll_options ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.poll_votes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.memories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.memory_photos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.memory_media ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.memory_tags ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.borrowed_items ENABLE ROW LEVEL SECURITY;
@@ -496,6 +523,7 @@ ALTER TABLE public.special_college_dates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.attendance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.class_reports ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.snaps ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.snap_recipients ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 
 -- POLICIES
@@ -591,10 +619,41 @@ DROP POLICY IF EXISTS "Memories select" ON public.memories;
 CREATE POLICY "Memories select" ON public.memories FOR SELECT USING (auth.role() = 'authenticated');
 DROP POLICY IF EXISTS "Memories insert" ON public.memories;
 CREATE POLICY "Memories insert" ON public.memories FOR INSERT WITH CHECK (auth.uid() = creator_id);
+DROP POLICY IF EXISTS "Memories update" ON public.memories;
+CREATE POLICY "Memories update" ON public.memories FOR UPDATE USING (auth.uid() = creator_id);
+DROP POLICY IF EXISTS "Memories delete" ON public.memories;
+CREATE POLICY "Memories delete" ON public.memories FOR DELETE 
+  USING (
+    auth.uid() = creator_id 
+    OR EXISTS (
+      SELECT 1 FROM public.profiles 
+      WHERE profiles.id = auth.uid() 
+      AND (profiles.role = 'admin' OR profiles.email = 'aprajahire07@gmail.com')
+    )
+  );
+
+DROP POLICY IF EXISTS "Memory photos select" ON public.memory_photos;
+CREATE POLICY "Memory photos select" ON public.memory_photos FOR SELECT USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Memory photos insert" ON public.memory_photos;
+CREATE POLICY "Memory photos insert" ON public.memory_photos FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Memory photos update" ON public.memory_photos;
+CREATE POLICY "Memory photos update" ON public.memory_photos FOR UPDATE USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Memory photos delete" ON public.memory_photos;
+CREATE POLICY "Memory photos delete" ON public.memory_photos FOR DELETE USING (auth.role() = 'authenticated');
+
 DROP POLICY IF EXISTS "Memory media select" ON public.memory_media;
 CREATE POLICY "Memory media select" ON public.memory_media FOR SELECT USING (auth.role() = 'authenticated');
 DROP POLICY IF EXISTS "Memory media insert" ON public.memory_media;
 CREATE POLICY "Memory media insert" ON public.memory_media FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Memory media delete" ON public.memory_media;
+CREATE POLICY "Memory media delete" ON public.memory_media FOR DELETE USING (auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "Memory tags select" ON public.memory_tags;
+CREATE POLICY "Memory tags select" ON public.memory_tags FOR SELECT USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Memory tags insert" ON public.memory_tags;
+CREATE POLICY "Memory tags insert" ON public.memory_tags FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Memory tags delete" ON public.memory_tags;
+CREATE POLICY "Memory tags delete" ON public.memory_tags FOR DELETE USING (auth.role() = 'authenticated');
 
 DROP POLICY IF EXISTS "Borrowed select" ON public.borrowed_items;
 CREATE POLICY "Borrowed select" ON public.borrowed_items FOR SELECT USING (auth.uid() = owner_id OR auth.uid() = borrower_id);
@@ -628,7 +687,31 @@ DROP POLICY IF EXISTS "Class reports update" ON public.class_reports;
 CREATE POLICY "Class reports update" ON public.class_reports FOR UPDATE USING (auth.role() = 'authenticated');
 
 DROP POLICY IF EXISTS "Snaps access" ON public.snaps;
-CREATE POLICY "Snaps access" ON public.snaps FOR ALL USING (auth.uid() = sender_id OR auth.uid() = receiver_id);
+DROP POLICY IF EXISTS "Snaps select" ON public.snaps;
+CREATE POLICY "Snaps select" ON public.snaps FOR SELECT 
+  USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Snaps insert" ON public.snaps;
+CREATE POLICY "Snaps insert" ON public.snaps FOR INSERT 
+  WITH CHECK (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Snaps update" ON public.snaps;
+CREATE POLICY "Snaps update" ON public.snaps FOR UPDATE 
+  USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Snaps delete" ON public.snaps;
+CREATE POLICY "Snaps delete" ON public.snaps FOR DELETE 
+  USING (auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "Snap recipients select" ON public.snap_recipients;
+CREATE POLICY "Snap recipients select" ON public.snap_recipients FOR SELECT 
+  USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Snap recipients insert" ON public.snap_recipients;
+CREATE POLICY "Snap recipients insert" ON public.snap_recipients FOR INSERT 
+  WITH CHECK (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Snap recipients update" ON public.snap_recipients;
+CREATE POLICY "Snap recipients update" ON public.snap_recipients FOR UPDATE 
+  USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Snap recipients delete" ON public.snap_recipients;
+CREATE POLICY "Snap recipients delete" ON public.snap_recipients FOR DELETE 
+  USING (auth.role() = 'authenticated');
 
 DROP POLICY IF EXISTS "Notifications access" ON public.notifications;
 DROP POLICY IF EXISTS "Notifications select" ON public.notifications;
@@ -644,15 +727,170 @@ ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "App settings read" ON public.app_settings;
 CREATE POLICY "App settings read" ON public.app_settings FOR SELECT USING (true);
 DROP POLICY IF EXISTS "App settings write" ON public.app_settings;
-CREATE POLICY "App settings write" ON public.app_settings FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "App settings write" ON public.app_settings FOR ALL 
+  USING (true)
+  WITH CHECK (true);
 
--- Default Seed for Memories Lock (Unlocked by default, default passcode 0000 sha256)
+-- Default Seed for Memories Lock (Locked by default, default passcode 0000 sha256)
 INSERT INTO public.app_settings (key, value)
-VALUES ('memories_lock', '{"locked": false, "passcode_hash": "4a7d1ed414474e4033ac29ccb8653d9b"}'::jsonb)
+VALUES ('memories_lock', '{"is_locked": true, "passcode_hash": "4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a"}'::jsonb)
 ON CONFLICT (key) DO NOTHING;
 
--- Enable Realtime for App Settings
+-- Secure verification RPC function: verifies SHA-256 hash without exposing the stored hash
+CREATE OR REPLACE FUNCTION public.verify_memories_passcode(p_passcode_hash TEXT)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_stored_hash TEXT;
+BEGIN
+  SELECT (value->>'passcode_hash') INTO v_stored_hash
+  FROM public.app_settings
+  WHERE key = 'memories_lock';
+  
+  IF v_stored_hash IS NULL THEN
+    v_stored_hash := '4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a';
+  END IF;
+  
+  RETURN (p_passcode_hash = v_stored_hash);
+END;
+$$;
+
+-- Secure admin update RPC function: updates lock state and/or hash
+CREATE OR REPLACE FUNCTION public.admin_update_memories_security(
+  p_is_locked BOOLEAN,
+  p_passcode_hash TEXT
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  INSERT INTO public.app_settings (key, value, updated_at)
+  VALUES (
+    'memories_lock',
+    jsonb_build_object('is_locked', p_is_locked, 'passcode_hash', p_passcode_hash),
+    NOW()
+  )
+  ON CONFLICT (key) DO UPDATE
+  SET value = jsonb_build_object('is_locked', p_is_locked, 'passcode_hash', p_passcode_hash),
+      updated_at = NOW();
+      
+  RETURN TRUE;
+END;
+$$;
+
+-- Enable Realtime for App Settings, Snaps, and Snap Recipients
 ALTER PUBLICATION supabase_realtime ADD TABLE public.app_settings;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.snaps;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.snap_recipients;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.memory_photos;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.notes;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.note_files;
+
+-- 12. NOTES & NOTE_FILES TABLES (SHARED MULTI-IMAGE & PDF NOTES)
+CREATE TABLE IF NOT EXISTS public.notes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  uploaded_by UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  caption TEXT NOT NULL,
+  is_password_protected BOOLEAN DEFAULT false,
+  password_hash TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.note_files (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  note_id UUID REFERENCES public.notes(id) ON DELETE CASCADE,
+  storage_path TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  file_type TEXT NOT NULL CHECK (file_type IN ('image', 'pdf')),
+  file_size BIGINT,
+  display_order INT DEFAULT 1,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- RLS FOR NOTES & NOTE_FILES
+ALTER TABLE public.notes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.note_files ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Group Read Notes" ON public.notes;
+CREATE POLICY "Group Read Notes" ON public.notes
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "Auth Create Notes" ON public.notes;
+CREATE POLICY "Auth Create Notes" ON public.notes
+  FOR INSERT WITH CHECK (auth.role() = 'authenticated' AND auth.uid() = uploaded_by);
+
+DROP POLICY IF EXISTS "Delete Notes Owner or Admin" ON public.notes;
+CREATE POLICY "Delete Notes Owner or Admin" ON public.notes
+  FOR DELETE USING (
+    auth.uid() = uploaded_by OR 
+    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND (role = 'admin' OR email = 'aprajahire07@gmail.com'))
+  );
+
+DROP POLICY IF EXISTS "Group Read Note Files" ON public.note_files;
+CREATE POLICY "Group Read Note Files" ON public.note_files
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "Auth Create Note Files" ON public.note_files;
+CREATE POLICY "Auth Create Note Files" ON public.note_files
+  FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "Delete Note Files Owner or Admin" ON public.note_files;
+CREATE POLICY "Delete Note Files Owner or Admin" ON public.note_files
+  FOR DELETE USING (
+    EXISTS (
+      SELECT 1 FROM public.notes 
+      WHERE notes.id = note_files.note_id AND (
+        notes.uploaded_by = auth.uid() OR 
+        EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND (role = 'admin' OR email = 'aprajahire07@gmail.com'))
+      )
+    )
+  );
+
+-- RPC for secure server-side password verification
+CREATE OR REPLACE FUNCTION public.verify_note_password(
+  p_note_id UUID,
+  p_password_hash TEXT
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $
+DECLARE
+  v_stored_hash TEXT;
+  v_is_protected BOOLEAN;
+  v_user_role TEXT;
+  v_user_email TEXT;
+BEGIN
+  -- Check if caller is Admin (aprajahire07@gmail.com or role = admin)
+  SELECT role, email INTO v_user_role, v_user_email
+  FROM public.profiles
+  WHERE id = auth.uid();
+
+  IF v_user_role = 'admin' OR v_user_email = 'aprajahire07@gmail.com' THEN
+    RETURN TRUE; -- Master Access for Admin
+  END IF;
+
+  -- Fetch note security info
+  SELECT password_hash, is_password_protected
+  INTO v_stored_hash, v_is_protected
+  FROM public.notes
+  WHERE id = p_note_id;
+
+  IF NOT FOUND THEN
+    RETURN FALSE;
+  END IF;
+
+  IF NOT v_is_protected THEN
+    RETURN TRUE;
+  END IF;
+
+  RETURN (p_password_hash = v_stored_hash);
+END;
+$;
 
 -- STORAGE BUCKETS SETUP
 INSERT INTO storage.buckets (id, name, public) VALUES 
@@ -660,7 +898,8 @@ INSERT INTO storage.buckets (id, name, public) VALUES
   ('memories', 'memories', true),
   ('chat-media', 'chat-media', true),
   ('payment-qr', 'payment-qr', true),
-  ('snaps', 'snaps', false)
+  ('snaps', 'snaps', false),
+  ('notes', 'notes', false)
 ON CONFLICT (id) DO NOTHING;
 
 -- STORAGE POLICIES
@@ -670,9 +909,11 @@ DROP POLICY IF EXISTS "Auth Upload Avatars" ON storage.objects;
 CREATE POLICY "Auth Upload Avatars" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'avatars' AND auth.role() = 'authenticated');
 
 DROP POLICY IF EXISTS "Group Read Memories" ON storage.objects;
-CREATE POLICY "Group Read Memories" ON storage.objects FOR SELECT USING (bucket_id = 'memories' AND auth.role() = 'authenticated');
+CREATE POLICY "Group Read Memories" ON storage.objects FOR SELECT USING (bucket_id = 'memories');
 DROP POLICY IF EXISTS "Auth Upload Memories" ON storage.objects;
 CREATE POLICY "Auth Upload Memories" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'memories' AND auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Auth Delete Memories" ON storage.objects;
+CREATE POLICY "Auth Delete Memories" ON storage.objects FOR DELETE USING (bucket_id = 'memories' AND auth.role() = 'authenticated');
 
 DROP POLICY IF EXISTS "Group Read Chat Media" ON storage.objects;
 CREATE POLICY "Group Read Chat Media" ON storage.objects FOR SELECT USING (bucket_id = 'chat-media' AND auth.role() = 'authenticated');
@@ -686,3 +927,6 @@ CREATE POLICY "Auth Upload Payment QR" ON storage.objects FOR INSERT WITH CHECK 
 
 DROP POLICY IF EXISTS "Private Snaps Access" ON storage.objects;
 CREATE POLICY "Private Snaps Access" ON storage.objects FOR ALL USING (bucket_id = 'snaps' AND auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "Private Notes Access" ON storage.objects;
+CREATE POLICY "Private Notes Access" ON storage.objects FOR ALL USING (bucket_id = 'notes' AND auth.role() = 'authenticated');

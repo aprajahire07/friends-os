@@ -12,7 +12,10 @@ import {
   QrCode,
   MapPin,
   Camera,
-  X
+  X,
+  ShieldCheck,
+  Users,
+  FileText
 } from 'lucide-react';
 import { appStore, useAppStore } from '../../lib/store';
 import { Profile } from '../../types';
@@ -20,6 +23,7 @@ import { StatusPicker } from '../friends/StatusPicker';
 import { useToast } from '../ui/Toast';
 import { FileUpload } from '../ui/FileUpload';
 import { getSyncMediaUrl } from '../../services/storage';
+import { isUserAdmin } from '../../services/appSettings';
 
 interface MeTabProps {
   onSelectTab: (tab: string) => void;
@@ -240,6 +244,34 @@ export const MeTab: React.FC<MeTabProps> = ({
               <p className="text-[10px] text-slate-400">Gadgets & Items</p>
             </div>
           </button>
+
+          <button
+            onClick={() => onSelectTab('notes')}
+            className="p-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-amber-500/50 flex flex-col items-center gap-2 text-center transition-all group"
+          >
+            <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+              <FileText className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-white">📚 Notes</h4>
+              <p className="text-[10px] text-slate-400">PDFs & Docs</p>
+            </div>
+          </button>
+
+          {isUserAdmin(user) && (
+            <button
+              onClick={() => onSelectTab('admin')}
+              className="p-4 rounded-2xl bg-gradient-to-br from-indigo-950/60 via-slate-900 to-slate-900 border border-indigo-700/60 hover:border-indigo-500 flex flex-col items-center gap-2 text-center transition-all group shadow-lg shadow-indigo-950/50"
+            >
+              <div className="w-10 h-10 rounded-xl bg-indigo-600/20 text-indigo-400 flex items-center justify-center group-hover:scale-110 transition-transform border border-indigo-500/30">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-xs font-black text-indigo-300">⚙️ Admin Center</h4>
+                <p className="text-[10px] text-slate-400">Security & Users</p>
+              </div>
+            </button>
+          )}
         </div>
       </div>
 

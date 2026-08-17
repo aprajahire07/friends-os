@@ -1,6 +1,6 @@
 {
   "name": "FRIEND OS",
-  "description": "Private digital operating system for a college friend group with chat, expenses, timetable, attendance, memories, and snaps.",
+  "description": "Private digital operating system for a college friend group with chat, expenses, timetable, attendance, memories, snaps, and shared study notes.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

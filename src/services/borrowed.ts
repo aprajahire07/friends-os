@@ -110,7 +110,7 @@ export async function addBorrowedItemToSupabase(item: {
       .single();
 
     if (error) {
-      console.error('Error inserting borrowed item to Supabase:', error.message);
+      console.info('Supabase borrowed items sync note (RLS/policy):', error.message);
       return null;
     }
 

@@ -10,9 +10,12 @@ import {
   Camera, 
   Images, 
   Backpack, 
-  GraduationCap
+  GraduationCap,
+  ShieldCheck,
+  FileText
 } from 'lucide-react';
 import { appStore, useAppStore } from '../../lib/store';
+import { isUserAdmin } from '../../services/appSettings';
 
 interface SidebarProps {
   activeTab: string;
@@ -49,8 +52,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'snaps', label: 'Snaps', icon: Camera, badge: unopenedSnapsCount > 0 ? unopenedSnapsCount : null },
     { id: 'college', label: 'College & Attendance', icon: GraduationCap, badge: null },
     { id: 'memories', label: 'Memories', icon: Images, badge: null },
+    { id: 'notes', label: '📚 Notes', icon: FileText, badge: null },
     { id: 'borrowed', label: 'Borrowed Items', icon: Backpack, badge: null },
     { id: 'me', label: 'Me', icon: User, badge: null },
+    ...(isUserAdmin(currentUser) ? [{ id: 'admin', label: '⚙️ Admin', icon: ShieldCheck, badge: null }] : []),
   ];
 
   return (

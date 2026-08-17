@@ -29,6 +29,8 @@ export interface Profile {
   current_location?: string | null; // e.g. "College — Block A, Room A-203"
   payment_qr_url?: string | null;
   upi_id?: string | null;
+  is_banned?: boolean;
+  account_status?: 'active' | 'banned';
   created_at: string;
 }
 
@@ -135,6 +137,14 @@ export interface PlanPoll {
   }[];
 }
 
+export interface MemoryPhoto {
+  id?: string;
+  memory_id?: string;
+  storage_path: string;
+  display_order: number;
+  created_at?: string;
+}
+
 export interface Memory {
   id: string;
   group_id: string;
@@ -142,6 +152,7 @@ export interface Memory {
   title: string;
   caption: string;
   media_urls: string[];
+  photos?: MemoryPhoto[];
   date: string;
   location?: string;
   tagged_user_ids: string[];
@@ -260,18 +271,32 @@ export interface Assignment {
   is_completed: boolean;
 }
 
+export interface SnapRecipientInfo {
+  recipient_id: string;
+  delivered_at?: string | null;
+  opened_at?: string | null;
+  expires_at?: string | null;
+  status: 'sent' | 'delivered' | 'opened' | 'expired';
+  recipient_profile?: Profile;
+}
+
 export interface SnapMessage {
   id: string;
   sender_id: string;
   recipient_id: string;
+  recipient_ids?: string[];
+  recipients?: SnapRecipientInfo[];
+  is_everyone?: boolean;
   image_url: string;
   caption?: string;
+  view_duration?: number;
   sent_at: string;
   delivered_at?: string | null;
   opened_at?: string | null;
   expires_at?: string | null;
   status: 'sent' | 'delivered' | 'opened' | 'expired';
   sender_profile?: Profile;
+  recipient_profile?: Profile;
 }
 
 export interface AppNotification {
@@ -285,6 +310,29 @@ export interface AppNotification {
   created_at: string;
 }
 
+export interface NoteFile {
+  id: string;
+  note_id: string;
+  storage_path: string;
+  file_name: string;
+  file_type: 'image' | 'pdf';
+  file_size?: number;
+  display_order: number;
+  created_at: string;
+}
+
+export interface Note {
+  id: string;
+  uploaded_by: string;
+  caption: string;
+  is_password_protected: boolean;
+  password_hash?: string | null;
+  created_at: string;
+  updated_at?: string;
+  files?: NoteFile[];
+  uploader_profile?: Profile;
+}
+
 export type NavigationTab = 
   | 'home'
   | 'friends'
@@ -293,6 +341,7 @@ export type NavigationTab =
   | 'expenses'
   | 'plans'
   | 'memories'
+  | 'notes'
   | 'borrowed'
   | 'dates'
   | 'college'

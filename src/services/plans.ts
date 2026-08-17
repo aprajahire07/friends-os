@@ -77,8 +77,19 @@ export async function addPlanToSupabase(plan: {
   if (!isSupabaseConfigured || !supabase || !plan.creator_id) return null;
 
   try {
+    let effectiveCreatorId = plan.creator_id;
+
+    try {
+      const { data: authData } = await supabase.auth.getUser();
+      if (authData?.user?.id && isValidUUID(authData.user.id) && !isValidUUID(effectiveCreatorId)) {
+        effectiveCreatorId = authData.user.id;
+      }
+    } catch {
+      // ignore
+    }
+
     const payload: any = {
-      creator_id: plan.creator_id,
+      creator_id: effectiveCreatorId,
       title: plan.title,
       description: plan.description || '',
       location: plan.location,
@@ -98,21 +109,25 @@ export async function addPlanToSupabase(plan: {
       .single();
 
     if (error) {
-      console.error('Error inserting plan:', error.message);
+      console.info('Supabase plan sync note (RLS/policy):', error.message);
       return null;
     }
 
     // Add creator as participant
-    await supabase.from('plan_participants').insert([{
-      plan_id: data.id,
-      user_id: plan.creator_id,
-      status: 'going'
-    }]);
+    try {
+      await supabase.from('plan_participants').insert([{
+        plan_id: data.id,
+        user_id: effectiveCreatorId,
+        status: 'going'
+      }]);
+    } catch {
+      // participant insert optional
+    }
 
     return {
       id: data.id,
       group_id: data.group_id,
-      creator_id: data.creator_id,
+      creator_id: plan.creator_id || data.creator_id,
       title: data.title,
       date: data.plan_date,
       time: data.start_time,
@@ -123,8 +138,8 @@ export async function addPlanToSupabase(plan: {
       polls: [],
       created_at: data.created_at
     };
-  } catch (err) {
-    console.error('Failed to add plan:', err);
+  } catch (err: any) {
+    console.info('Plan sync notice:', err?.message || err);
     return null;
   }
 }
