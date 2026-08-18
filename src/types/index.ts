@@ -338,6 +338,7 @@ export interface Note {
 export type NavigationTab = 
   | 'home'
   | 'friends'
+  | 'chat'
   | 'discussions'
   | 'snaps'
   | 'expenses'
@@ -350,4 +351,5 @@ export type NavigationTab =
   | 'attendance'
   | 'notifications'
   | 'profile'
+  | 'me'
   | 'admin';

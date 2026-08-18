@@ -26,20 +26,29 @@ import { AuthModal } from './components/auth/AuthModal';
 import { BannedAccountView } from './components/auth/BannedAccountView';
 import { AdminDashboard } from './components/admin/AdminDashboard';
 import { ToastProvider, useToast } from './components/ui/Toast';
+import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { Profile } from './types';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { appStore, useAppStore } from './lib/store';
 import { subscribeToAllRealtimeTables } from './services/realtime';
 import { fetchProfileById } from './services/profiles';
 import { isUserAdmin } from './services/appSettings';
+import { withTimeout } from './lib/asyncUtils';
 import { Loader2 } from 'lucide-react';
 
 export function AppContent() {
   const [activeTab, setActiveTab] = useState<string>('home');
-  const [authChecking, setAuthChecking] = useState<boolean>(true);
+  // If local user is already cached, avoid blocking UI on initial reload
+  const [authChecking, setAuthChecking] = useState<boolean>(!appStore.currentUser && isSupabaseConfigured);
   const [authModalMode, setAuthModalMode] = useState<'login' | 'signup' | 'forgot' | 'reset_password'>('login');
   const { showToast } = useToast();
   
+  // Keep toast callback stable for subscriptions
+  const toastRef = React.useRef(showToast);
+  useEffect(() => {
+    toastRef.current = showToast;
+  }, [showToast]);
+
   // Reactive store state
   useAppStore();
   const currentUser = appStore.currentUser;
@@ -50,17 +59,23 @@ export function AppContent() {
     async function initSession() {
       try {
         if (isSupabaseConfigured && supabase) {
-          const { data: { session } } = await supabase.auth.getSession();
+          const sessionRes = await withTimeout(supabase.auth.getSession(), 4000, { data: { session: null }, error: null });
+          const session = (sessionRes as any)?.data?.session;
+
           if (session?.user && mounted) {
-            const profile = await fetchProfileById(session.user.id);
+            const profile = await withTimeout(fetchProfileById(session.user.id), 4000, null);
             if (profile && mounted) {
               appStore.setCurrentUser(profile);
-              await appStore.syncFromSupabase();
+              // Trigger background sync without blocking interactive rendering
+              appStore.syncFromSupabase();
             }
+          } else if (!appStore.currentUser && mounted) {
+            // No session and no cached user
+            setAuthChecking(false);
           }
         }
       } catch (e) {
-        console.warn('Session init error:', e);
+        console.warn('Session init note:', e);
       } finally {
         if (mounted) {
           setAuthChecking(false);
@@ -88,20 +103,20 @@ export function AppContent() {
       });
 
       const unsubscribeRealtime = subscribeToAllRealtimeTables((newNotif) => {
-        if (newNotif) {
-          showToast(newNotif.title || 'New Notification', newNotif.message || '', 'info');
+        if (newNotif && toastRef.current) {
+          toastRef.current(newNotif.title || 'New Notification', newNotif.message || '', 'info');
         }
       });
 
       return () => {
         mounted = false;
-        authListener.subscription.unsubscribe();
+        authListener?.subscription?.unsubscribe?.();
         unsubscribeRealtime();
       };
     } else {
       setAuthChecking(false);
     }
-  }, [showToast]);
+  }, []);
 
   // Shared Action Sheet & Modals State
   const [showCreateSheet, setShowCreateSheet] = useState(false);
@@ -202,66 +217,68 @@ export function AppContent() {
         <main className={`flex-1 overflow-x-hidden ${
           activeTab === 'chat' ? 'p-2 md:p-4 flex flex-col' : 'p-4 md:p-6'
         }`}>
-          {activeTab === 'home' && (
-            <MainDashboard
-              onSelectTab={setActiveTab}
-              onOpenSendSnap={() => {
-                setSnapFriend(null);
-                setShowSnapModal(true);
-              }}
-              onOpenAddMoney={() => setShowAddMoneyModal(true)}
-              onOpenCreatePlan={() => setShowCreatePlanModal(true)}
-            />
-          )}
+          <ErrorBoundary key={activeTab} fallbackTitle="View Error">
+            {activeTab === 'home' && (
+              <MainDashboard
+                onSelectTab={setActiveTab}
+                onOpenSendSnap={() => {
+                  setSnapFriend(null);
+                  setShowSnapModal(true);
+                }}
+                onOpenAddMoney={() => setShowAddMoneyModal(true)}
+                onOpenCreatePlan={() => setShowCreatePlanModal(true)}
+              />
+            )}
 
-          {activeTab === 'friends' && (
-            <FriendsList
-              onOpenPaymentQR={handleOpenPaymentQR}
-              onSendSnapTo={handleSendSnapTo}
-              onSelectTab={setActiveTab}
-              onOpenChatWithFriend={handleOpenChatWithFriend}
-              onOpenAddMoneyForFriend={handleOpenAddMoneyForFriend}
-              onOpenBorrowForFriend={handleOpenBorrowForFriend}
-            />
-          )}
+            {activeTab === 'friends' && (
+              <FriendsList
+                onOpenPaymentQR={handleOpenPaymentQR}
+                onSendSnapTo={handleSendSnapTo}
+                onSelectTab={setActiveTab}
+                onOpenChatWithFriend={handleOpenChatWithFriend}
+                onOpenAddMoneyForFriend={handleOpenAddMoneyForFriend}
+                onOpenBorrowForFriend={handleOpenBorrowForFriend}
+              />
+            )}
 
-          {activeTab === 'chat' && (
-            <GroupChat 
-              initialFriendId={activeChatFriendId} 
-              onOpenProfile={handleOpenFriendProfile} 
-            />
-          )}
+            {activeTab === 'chat' && (
+              <GroupChat 
+                initialFriendId={activeChatFriendId} 
+                onOpenProfile={handleOpenFriendProfile} 
+              />
+            )}
 
-          {activeTab === 'expenses' && (
-            <ExpenseDashboard
-              onOpenPaymentQR={handleOpenPaymentQR}
-              preselectedFriendForMoney={preselectedFriend}
-            />
-          )}
+            {activeTab === 'expenses' && (
+              <ExpenseDashboard
+                onOpenPaymentQR={handleOpenPaymentQR}
+                preselectedFriendForMoney={preselectedFriend}
+              />
+            )}
 
-          {activeTab === 'plans' && <PlansList />}
+            {activeTab === 'plans' && <PlansList />}
 
-          {activeTab === 'snaps' && <SnapsFeed />}
+            {activeTab === 'snaps' && <SnapsFeed />}
 
-          {activeTab === 'memories' && <MemoryGallery />}
+            {activeTab === 'memories' && <MemoryGallery />}
 
-          {activeTab === 'borrowed' && <BorrowedTracker />}
+            {activeTab === 'borrowed' && <BorrowedTracker />}
 
-          {activeTab === 'college' && <CollegeClassesTab />}
+            {activeTab === 'college' && <CollegeClassesTab />}
 
-          {activeTab === 'notes' && <NotesList />}
+            {activeTab === 'notes' && <NotesList />}
 
-          {activeTab === 'me' && (
-            <MeTab
-              onSelectTab={setActiveTab}
-              onOpenPaymentQR={handleOpenPaymentQR}
-              onOpenOnboarding={() => setShowOnboardingModal(true)}
-            />
-          )}
+            {activeTab === 'me' && (
+              <MeTab
+                onSelectTab={setActiveTab}
+                onOpenPaymentQR={handleOpenPaymentQR}
+                onOpenOnboarding={() => setShowOnboardingModal(true)}
+              />
+            )}
 
-          {activeTab === 'admin' && isAdminUser && (
-            <AdminDashboard onBackToHome={() => setActiveTab('home')} />
-          )}
+            {activeTab === 'admin' && isAdminUser && (
+              <AdminDashboard onBackToHome={() => setActiveTab('home')} />
+            )}
+          </ErrorBoundary>
         </main>
       </div>
 

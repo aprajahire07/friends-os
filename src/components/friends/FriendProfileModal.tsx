@@ -62,7 +62,7 @@ export const FriendProfileModal: React.FC<FriendProfileModalProps> = ({
   const currentUser = appStore.currentUser;
   const isSelf = friend?.id === currentUser?.id;
 
-  // Reactively fetch fresh profile data on friend change or store update
+  // Reactively fetch fresh profile data on friend change
   useEffect(() => {
     if (!friend) {
       setLiveProfile(null);
@@ -76,7 +76,7 @@ export const FriendProfileModal: React.FC<FriendProfileModalProps> = ({
     setNewQrPath(storeMatched.payment_qr_url || '');
     setNewUpiId(storeMatched.upi_id || '');
 
-    // 2. Fetch fresh data from Supabase asynchronously to guarantee no stale cache
+    // 2. Fetch fresh data from Supabase asynchronously
     let isMounted = true;
     fetchProfileById(friend.id).then(fresh => {
       if (fresh && isMounted) {
@@ -84,22 +84,30 @@ export const FriendProfileModal: React.FC<FriendProfileModalProps> = ({
         setNewQrPath(fresh.payment_qr_url || '');
         setNewUpiId(fresh.upi_id || '');
       }
+    }).catch(err => {
+      console.warn('Profile fetch error:', err);
     });
 
     return () => {
       isMounted = false;
     };
-  }, [friend?.id, isSelf, appStore.profiles]);
+  }, [friend?.id, isSelf]);
 
   // Resolve QR URL whenever liveProfile changes
   useEffect(() => {
+    let isMounted = true;
     if (liveProfile?.payment_qr_url) {
       getResolvedMediaUrl('payment-qr', liveProfile.payment_qr_url).then(url => {
-        setDisplayQrUrl(url);
+        if (isMounted) setDisplayQrUrl(url);
+      }).catch(() => {
+        if (isMounted) setDisplayQrUrl('');
       });
     } else {
       setDisplayQrUrl('');
     }
+    return () => {
+      isMounted = false;
+    };
   }, [liveProfile?.payment_qr_url]);
 
   if (!friend || !liveProfile) return null;

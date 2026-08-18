@@ -24,6 +24,7 @@ import {
 } from '../types';
 import { resolveCollegeId, GHRCE_COLLEGE_ID, SKILLTECH_COLLEGE_ID } from './timetables';
 import { supabase, isSupabaseConfigured } from './supabase';
+import { dedupeAsync, withTimeout } from './asyncUtils';
 import { fetchProfilesFromSupabase, updateProfileInSupabase, sanitizeCollege } from '../services/profiles';
 import { 
   fetchMessagesFromSupabase, 
@@ -160,343 +161,390 @@ export const appStore = {
   async syncFromSupabase() {
     if (!isSupabaseConfigured || !this.currentUser) return;
 
-    try {
-      const collegeId = resolveCollegeId(this.currentUser.college);
-      const [
-        remoteProfiles,
-        remoteMessages,
-        remoteExpenses,
-        remoteLoans,
-        remotePlans,
-        remoteMemories,
-        remoteNotes,
-        remoteBorrowed,
-        remoteAttendance,
-        remoteReports,
-        remoteSnaps,
-        remoteNotifications,
-        remoteSettings,
-        remoteGroupData,
-        remoteMessageReads
-      ] = await Promise.all([
-        fetchProfilesFromSupabase(),
-        fetchMessagesFromSupabase(),
-        fetchExpensesFromSupabase(),
-        fetchLoansFromSupabase(),
-        fetchPlansFromSupabase(),
-        fetchMemoriesFromSupabase(),
-        fetchNotesFromSupabase(),
-        fetchBorrowedItemsFromSupabase(),
-        fetchDateAttendanceFromSupabase(this.currentUser.id, collegeId),
-        fetchClassReportsFromSupabase(collegeId),
-        fetchSnapsFromSupabase(this.currentUser.id),
-        fetchNotificationsFromSupabase(this.currentUser.id),
-        fetchMemoryLockSettingsFromSupabase(),
-        fetchUserGroup(this.currentUser.id),
-        fetchMessageReadsFromSupabase(this.currentUser.id)
-      ]);
+    return dedupeAsync('syncFromSupabase', async () => {
+      try {
+        const collegeId = resolveCollegeId(this.currentUser.college);
+        const [
+          remoteProfiles,
+          remoteMessages,
+          remoteExpenses,
+          remoteLoans,
+          remotePlans,
+          remoteMemories,
+          remoteNotes,
+          remoteBorrowed,
+          remoteAttendance,
+          remoteReports,
+          remoteSnaps,
+          remoteNotifications,
+          remoteSettings,
+          remoteGroupData,
+          remoteMessageReads
+        ] = await withTimeout(
+          Promise.all([
+            fetchProfilesFromSupabase(),
+            fetchMessagesFromSupabase(),
+            fetchExpensesFromSupabase(),
+            fetchLoansFromSupabase(),
+            fetchPlansFromSupabase(),
+            fetchMemoriesFromSupabase(),
+            fetchNotesFromSupabase(),
+            fetchBorrowedItemsFromSupabase(),
+            fetchDateAttendanceFromSupabase(this.currentUser.id, collegeId),
+            fetchClassReportsFromSupabase(collegeId),
+            fetchSnapsFromSupabase(this.currentUser.id),
+            fetchNotificationsFromSupabase(this.currentUser.id),
+            fetchMemoryLockSettingsFromSupabase(),
+            fetchUserGroup(this.currentUser.id),
+            fetchMessageReadsFromSupabase(this.currentUser.id)
+          ]),
+          8000,
+          [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null]
+        );
 
-      const localReads = loadInitialState<Record<string, string>>(`messageReads_${this.currentUser.id}`, {});
-      const mergedReads: Record<string, string> = { ...localReads };
-      if (remoteMessageReads) {
-        for (const [cat, time] of Object.entries(remoteMessageReads)) {
-          if (!mergedReads[cat] || new Date(time).getTime() > new Date(mergedReads[cat]).getTime()) {
-            mergedReads[cat] = time;
+        const localReads = loadInitialState<Record<string, string>>(`messageReads_${this.currentUser.id}`, {});
+        const mergedReads: Record<string, string> = { ...localReads };
+        if (remoteMessageReads) {
+          for (const [cat, time] of Object.entries(remoteMessageReads)) {
+            if (!mergedReads[cat] || new Date(time).getTime() > new Date(mergedReads[cat]).getTime()) {
+              mergedReads[cat] = time;
+            }
           }
         }
-      }
-      this.messageReads = mergedReads;
-      saveState(`messageReads_${this.currentUser.id}`, this.messageReads);
+        this.messageReads = mergedReads;
+        saveState(`messageReads_${this.currentUser.id}`, this.messageReads);
 
-      if (remoteGroupData) {
-        this.group = remoteGroupData.group;
-        saveState('group', this.group);
-      }
-
-      if (remoteSettings) {
-        this.memoriesLocked = remoteSettings.is_locked;
-        this.memoriesPasscodeHash = remoteSettings.passcode_hash || DEFAULT_PASSCODE_HASH;
-        saveState('memoriesLocked', this.memoriesLocked);
-        saveState('memoriesPasscodeHash', this.memoriesPasscodeHash);
-      }
-
-      if (remoteProfiles && remoteProfiles.length > 0) {
-        this.profiles = remoteProfiles;
-        const currentMatched = this.profiles.find(p => p.id === this.currentUser?.id);
-        if (currentMatched) {
-          this.currentUser = { ...this.currentUser, ...currentMatched };
-          saveState('currentUser', this.currentUser);
+        if (remoteGroupData) {
+          this.group = remoteGroupData.group;
+          saveState('group', this.group);
         }
-        saveState('profiles', this.profiles);
-      }
-      if (remoteMessages) this.messages = remoteMessages;
-      if (remoteExpenses) this.expenses = remoteExpenses;
-      if (remoteLoans) this.loans = remoteLoans;
-      if (remotePlans) this.plans = remotePlans;
-      if (remoteMemories) this.memories = remoteMemories;
-      if (remoteNotes) {
-        this.notes = remoteNotes;
-        saveState('notes', this.notes);
-      }
-      if (remoteBorrowed) this.borrowed = remoteBorrowed;
-      if (remoteAttendance) this.dateAttendanceRecords = remoteAttendance;
-      if (remoteReports) this.cancellationReports = remoteReports;
-      if (remoteSnaps) this.snaps = remoteSnaps;
-      if (remoteNotifications) this.notifications = remoteNotifications;
 
-      notifyListeners();
-    } catch (err) {
-      console.warn('Sync from Supabase completed with note:', err);
-    }
-  },
+        if (remoteSettings) {
+          this.memoriesLocked = remoteSettings.is_locked;
+          this.memoriesPasscodeHash = remoteSettings.passcode_hash || DEFAULT_PASSCODE_HASH;
+          saveState('memoriesLocked', this.memoriesLocked);
+          saveState('memoriesPasscodeHash', this.memoriesPasscodeHash);
+        }
 
-  async syncProfiles() {
-    if (!isSupabaseConfigured) return;
-    try {
-      const remoteProfiles = await fetchProfilesFromSupabase();
-      if (remoteProfiles && remoteProfiles.length > 0) {
-        this.profiles = remoteProfiles;
-        if (this.currentUser) {
-          const currentMatched = this.profiles.find(p => p.id === this.currentUser.id);
+        if (remoteProfiles && remoteProfiles.length > 0) {
+          this.profiles = remoteProfiles;
+          const currentMatched = this.profiles.find(p => p.id === this.currentUser?.id);
           if (currentMatched) {
             this.currentUser = { ...this.currentUser, ...currentMatched };
             saveState('currentUser', this.currentUser);
           }
+          saveState('profiles', this.profiles);
         }
-        saveState('profiles', this.profiles);
+        if (remoteMessages) this.messages = remoteMessages;
+        if (remoteExpenses) this.expenses = remoteExpenses;
+        if (remoteLoans) this.loans = remoteLoans;
+        if (remotePlans) this.plans = remotePlans;
+        if (remoteMemories) this.memories = remoteMemories;
+        if (remoteNotes) {
+          this.notes = remoteNotes;
+          saveState('notes', this.notes);
+        }
+        if (remoteBorrowed) this.borrowed = remoteBorrowed;
+        if (remoteAttendance) this.dateAttendanceRecords = remoteAttendance;
+        if (remoteReports) this.cancellationReports = remoteReports;
+        if (remoteSnaps) this.snaps = remoteSnaps;
+        if (remoteNotifications) this.notifications = remoteNotifications;
+
         notifyListeners();
+      } catch (err) {
+        console.warn('Sync from Supabase completed with note:', err);
       }
-    } catch (err) {
-      console.warn('Error syncing profiles:', err);
-    }
+    });
+  },
+
+  async syncProfiles() {
+    if (!isSupabaseConfigured) return;
+    return dedupeAsync('syncProfiles', async () => {
+      try {
+        const remoteProfiles = await withTimeout(fetchProfilesFromSupabase(), 8000, null);
+        if (remoteProfiles && remoteProfiles.length > 0) {
+          this.profiles = remoteProfiles;
+          if (this.currentUser) {
+            const currentMatched = this.profiles.find(p => p.id === this.currentUser.id);
+            if (currentMatched) {
+              this.currentUser = { ...this.currentUser, ...currentMatched };
+              saveState('currentUser', this.currentUser);
+            }
+          }
+          saveState('profiles', this.profiles);
+          notifyListeners();
+        }
+      } catch (err) {
+        console.warn('Error syncing profiles:', err);
+      }
+    });
   },
 
   async syncMessages() {
     if (!isSupabaseConfigured || !this.currentUser) return;
-    try {
-      const remoteMessages = await fetchMessagesFromSupabase();
-      if (remoteMessages) {
-        // Build sender profile lookup
-        const profileMap = new Map(this.profiles.map(p => [p.id, p]));
-        if (this.currentUser) profileMap.set(this.currentUser.id, this.currentUser);
+    return dedupeAsync('syncMessages', async () => {
+      try {
+        const remoteMessages = await withTimeout(fetchMessagesFromSupabase(), 8000, null);
+        if (remoteMessages) {
+          // Build sender profile lookup
+          const profileMap = new Map(this.profiles.map(p => [p.id, p]));
+          if (this.currentUser) profileMap.set(this.currentUser.id, this.currentUser);
 
-        const enrichedRemote = remoteMessages.map(m => ({
-          ...m,
-          sender: profileMap.get(m.sender_id) || m.sender,
-          recipient: m.recipient_id ? profileMap.get(m.recipient_id) || m.recipient : undefined
-        }));
+          const enrichedRemote = remoteMessages.map(m => ({
+            ...m,
+            sender: profileMap.get(m.sender_id) || m.sender,
+            recipient: m.recipient_id ? profileMap.get(m.recipient_id) || m.recipient : undefined
+          }));
 
-        // Preserve optimistic local messages that are still pending
-        const pendingOptimistic = this.messages.filter(
-          m => m.id.startsWith('msg-') && !enrichedRemote.some(rm => rm.id === m.id)
-        );
+          // Preserve optimistic local messages that are still pending
+          const pendingOptimistic = this.messages.filter(
+            m => m.id.startsWith('msg-') && !enrichedRemote.some(rm => rm.id === m.id)
+          );
 
-        // Merge and sort
-        const combined = [...enrichedRemote, ...pendingOptimistic].sort(
-          (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-        );
+          // Merge and sort
+          const combined = [...enrichedRemote, ...pendingOptimistic].sort(
+            (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+          );
 
-        this.messages = combined;
-        saveState('messages', this.messages);
-        notifyListeners();
+          this.messages = combined;
+          saveState('messages', this.messages);
+          notifyListeners();
+        }
+      } catch (err) {
+        console.warn('Error syncing messages:', err);
       }
-    } catch (err) {
-      console.warn('Error syncing messages:', err);
-    }
+    });
   },
 
   async syncMessageReads() {
     if (!isSupabaseConfigured || !this.currentUser) return;
-    try {
-      const remoteReads = await fetchMessageReadsFromSupabase(this.currentUser.id);
-      const localReads = loadInitialState<Record<string, string>>(`messageReads_${this.currentUser.id}`, {});
-      const merged: Record<string, string> = { ...localReads };
-      if (remoteReads) {
-        for (const [cat, time] of Object.entries(remoteReads)) {
-          if (!merged[cat] || new Date(time).getTime() > new Date(merged[cat]).getTime()) {
-            merged[cat] = time;
+    return dedupeAsync('syncMessageReads', async () => {
+      try {
+        const remoteReads = await withTimeout(fetchMessageReadsFromSupabase(this.currentUser.id), 8000, null);
+        const localReads = loadInitialState<Record<string, string>>(`messageReads_${this.currentUser.id}`, {});
+        const merged: Record<string, string> = { ...localReads };
+        if (remoteReads) {
+          for (const [cat, time] of Object.entries(remoteReads)) {
+            if (!merged[cat] || new Date(time).getTime() > new Date(merged[cat]).getTime()) {
+              merged[cat] = time;
+            }
           }
         }
+        this.messageReads = merged;
+        saveState(`messageReads_${this.currentUser.id}`, this.messageReads);
+        notifyListeners();
+      } catch (err) {
+        console.warn('Error syncing message reads:', err);
       }
-      this.messageReads = merged;
-      saveState(`messageReads_${this.currentUser.id}`, this.messageReads);
-      notifyListeners();
-    } catch (err) {
-      console.warn('Error syncing message reads:', err);
-    }
+    });
   },
 
   async syncExpensesAndLoans() {
     if (!isSupabaseConfigured) return;
-    try {
-      const [remoteExpenses, remoteLoans] = await Promise.all([
-        fetchExpensesFromSupabase(),
-        fetchLoansFromSupabase()
-      ]);
-      if (remoteExpenses) {
-        // Keep optimistic expenses that haven't been resolved yet
-        const tempPending = this.expenses.filter(
-          e => e.id.startsWith('exp-') && !remoteExpenses.some(re => re.id === e.id)
+    return dedupeAsync('syncExpensesAndLoans', async () => {
+      try {
+        const [remoteExpenses, remoteLoans] = await withTimeout(
+          Promise.all([
+            fetchExpensesFromSupabase(),
+            fetchLoansFromSupabase()
+          ]),
+          8000,
+          [null, null]
         );
-        this.expenses = [...tempPending, ...remoteExpenses];
-        saveState('expenses', this.expenses);
+        let changed = false;
+        if (remoteExpenses) {
+          const tempPending = this.expenses.filter(
+            e => e.id.startsWith('exp-') && !remoteExpenses.some(re => re.id === e.id)
+          );
+          this.expenses = [...tempPending, ...remoteExpenses];
+          saveState('expenses', this.expenses);
+          changed = true;
+        }
+        if (remoteLoans) {
+          const tempPendingLoans = this.loans.filter(
+            l => l.id.startsWith('loan-') && !remoteLoans.some(rl => rl.id === l.id)
+          );
+          this.loans = [...tempPendingLoans, ...remoteLoans];
+          saveState('loans', this.loans);
+          changed = true;
+        }
+        if (changed) {
+          notifyListeners();
+        }
+      } catch (err) {
+        console.warn('Error syncing expenses/loans:', err);
       }
-      if (remoteLoans) {
-        const tempPendingLoans = this.loans.filter(
-          l => l.id.startsWith('loan-') && !remoteLoans.some(rl => rl.id === l.id)
-        );
-        this.loans = [...tempPendingLoans, ...remoteLoans];
-        saveState('loans', this.loans);
-      }
-      notifyListeners();
-    } catch (err) {
-      console.warn('Error syncing expenses/loans:', err);
-    }
+    });
   },
 
   async syncPlans() {
     if (!isSupabaseConfigured) return;
-    try {
-      const remotePlans = await fetchPlansFromSupabase();
-      if (remotePlans) {
-        this.plans = remotePlans;
-        saveState('plans', this.plans);
-        notifyListeners();
+    return dedupeAsync('syncPlans', async () => {
+      try {
+        const remotePlans = await withTimeout(fetchPlansFromSupabase(), 8000, null);
+        if (remotePlans) {
+          this.plans = remotePlans;
+          saveState('plans', this.plans);
+          notifyListeners();
+        }
+      } catch (err) {
+        console.warn('Error syncing plans:', err);
       }
-    } catch (err) {
-      console.warn('Error syncing plans:', err);
-    }
+    });
   },
 
   async syncMemories() {
     if (!isSupabaseConfigured) return;
-    try {
-      const remoteMemories = await fetchMemoriesFromSupabase();
-      if (remoteMemories) {
-        const hydrated = remoteMemories.map(m => {
-          if (!m.creator_profile) {
-            const matchedProfile = this.profiles.find(p => p.id === m.creator_id);
-            if (matchedProfile) {
-              return { ...m, creator_profile: matchedProfile };
+    return dedupeAsync('syncMemories', async () => {
+      try {
+        const remoteMemories = await withTimeout(fetchMemoriesFromSupabase(), 8000, null);
+        if (remoteMemories) {
+          const hydrated = remoteMemories.map(m => {
+            if (!m.creator_profile) {
+              const matchedProfile = this.profiles.find(p => p.id === m.creator_id);
+              if (matchedProfile) {
+                return { ...m, creator_profile: matchedProfile };
+              }
             }
-          }
-          return m;
-        });
-        this.memories = hydrated;
-        saveState('memories', this.memories);
-        notifyListeners();
+            return m;
+          });
+          this.memories = hydrated;
+          saveState('memories', this.memories);
+          notifyListeners();
+        }
+      } catch (err) {
+        console.warn('Error syncing memories:', err);
       }
-    } catch (err) {
-      console.warn('Error syncing memories:', err);
-    }
+    });
   },
 
   async syncNotes() {
     if (!isSupabaseConfigured) return;
-    try {
-      const remoteNotes = await fetchNotesFromSupabase();
-      if (remoteNotes) {
-        const hydrated = remoteNotes.map(n => {
-          if (!n.uploader_profile) {
-            const matchedProfile = this.profiles.find(p => p.id === n.uploaded_by);
-            if (matchedProfile) {
-              return { ...n, uploader_profile: matchedProfile };
+    return dedupeAsync('syncNotes', async () => {
+      try {
+        const remoteNotes = await withTimeout(fetchNotesFromSupabase(), 8000, null);
+        if (remoteNotes) {
+          const hydrated = remoteNotes.map(n => {
+            if (!n.uploader_profile) {
+              const matchedProfile = this.profiles.find(p => p.id === n.uploaded_by);
+              if (matchedProfile) {
+                return { ...n, uploader_profile: matchedProfile };
+              }
             }
-          }
-          return n;
-        });
-        this.notes = hydrated;
-        saveState('notes', this.notes);
-        notifyListeners();
+            return n;
+          });
+          this.notes = hydrated;
+          saveState('notes', this.notes);
+          notifyListeners();
+        }
+      } catch (err) {
+        console.warn('Error syncing notes:', err);
       }
-    } catch (err) {
-      console.warn('Error syncing notes:', err);
-    }
+    });
   },
 
   async syncBorrowedItems() {
     if (!isSupabaseConfigured) return;
-    try {
-      const remoteBorrowed = await fetchBorrowedItemsFromSupabase();
-      if (remoteBorrowed) {
-        this.borrowed = remoteBorrowed;
-        saveState('borrowed', this.borrowed);
-        notifyListeners();
+    return dedupeAsync('syncBorrowedItems', async () => {
+      try {
+        const remoteBorrowed = await withTimeout(fetchBorrowedItemsFromSupabase(), 8000, null);
+        if (remoteBorrowed) {
+          this.borrowed = remoteBorrowed;
+          saveState('borrowed', this.borrowed);
+          notifyListeners();
+        }
+      } catch (err) {
+        console.warn('Error syncing borrowed items:', err);
       }
-    } catch (err) {
-      console.warn('Error syncing borrowed items:', err);
-    }
+    });
   },
 
   async syncAttendanceAndReports() {
     if (!isSupabaseConfigured || !this.currentUser) return;
-    try {
-      const collegeId = resolveCollegeId(this.currentUser.college);
-      const [remoteAttendance, remoteReports] = await Promise.all([
-        fetchDateAttendanceFromSupabase(this.currentUser.id, collegeId),
-        fetchClassReportsFromSupabase(collegeId)
-      ]);
-      if (remoteAttendance) {
-        this.dateAttendanceRecords = remoteAttendance;
-        saveState('dateAttendanceRecords', this.dateAttendanceRecords);
+    return dedupeAsync('syncAttendanceAndReports', async () => {
+      try {
+        const collegeId = resolveCollegeId(this.currentUser.college);
+        const [remoteAttendance, remoteReports] = await withTimeout(
+          Promise.all([
+            fetchDateAttendanceFromSupabase(this.currentUser.id, collegeId),
+            fetchClassReportsFromSupabase(collegeId)
+          ]),
+          8000,
+          [null, null]
+        );
+        let changed = false;
+        if (remoteAttendance) {
+          this.dateAttendanceRecords = remoteAttendance;
+          saveState('dateAttendanceRecords', this.dateAttendanceRecords);
+          changed = true;
+        }
+        if (remoteReports) {
+          this.cancellationReports = remoteReports;
+          saveState('cancellationReports', this.cancellationReports);
+          changed = true;
+        }
+        if (changed) {
+          notifyListeners();
+        }
+      } catch (err) {
+        console.warn('Error syncing attendance & reports:', err);
       }
-      if (remoteReports) {
-        this.cancellationReports = remoteReports;
-        saveState('cancellationReports', this.cancellationReports);
-      }
-      notifyListeners();
-    } catch (err) {
-      console.warn('Error syncing attendance & reports:', err);
-    }
+    });
   },
 
   async syncSnaps() {
     if (!isSupabaseConfigured || !this.currentUser) return;
-    try {
-      const remoteSnaps = await fetchSnapsFromSupabase(this.currentUser.id);
-      if (remoteSnaps) {
-        this.snaps = remoteSnaps;
-        saveState('snaps', this.snaps);
-        notifyListeners();
+    return dedupeAsync('syncSnaps', async () => {
+      try {
+        const remoteSnaps = await withTimeout(fetchSnapsFromSupabase(this.currentUser.id), 8000, null);
+        if (remoteSnaps) {
+          this.snaps = remoteSnaps;
+          saveState('snaps', this.snaps);
+          notifyListeners();
+        }
+      } catch (err) {
+        console.warn('Error syncing snaps:', err);
       }
-    } catch (err) {
-      console.warn('Error syncing snaps:', err);
-    }
+    });
   },
 
   async syncNotifications() {
     if (!isSupabaseConfigured || !this.currentUser) return;
-    try {
-      const remoteNotifications = await fetchNotificationsFromSupabase(this.currentUser.id);
-      if (remoteNotifications) {
-        this.notifications = remoteNotifications;
-        saveState('notifications', this.notifications);
-        notifyListeners();
+    return dedupeAsync('syncNotifications', async () => {
+      try {
+        const remoteNotifications = await withTimeout(fetchNotificationsFromSupabase(this.currentUser.id), 8000, null);
+        if (remoteNotifications) {
+          this.notifications = remoteNotifications;
+          saveState('notifications', this.notifications);
+          notifyListeners();
+        }
+      } catch (err) {
+        console.warn('Error syncing notifications:', err);
       }
-    } catch (err) {
-      console.warn('Error syncing notifications:', err);
-    }
+    });
   },
 
   async syncAppSettings() {
     if (!isSupabaseConfigured) return;
-    try {
-      const remoteSettings = await fetchMemoryLockSettingsFromSupabase();
-      if (remoteSettings) {
-        const lockChanged = this.memoriesLocked !== remoteSettings.is_locked;
-        this.memoriesLocked = remoteSettings.is_locked;
-        this.memoriesPasscodeHash = remoteSettings.passcode_hash || DEFAULT_PASSCODE_HASH;
-        saveState('memoriesLocked', this.memoriesLocked);
-        saveState('memoriesPasscodeHash', this.memoriesPasscodeHash);
-        
-        if (lockChanged && this.memoriesLocked && !isUserAdmin(this.currentUser)) {
-          this.sessionUnlockedMemories = false;
+    return dedupeAsync('syncAppSettings', async () => {
+      try {
+        const remoteSettings = await withTimeout(fetchMemoryLockSettingsFromSupabase(), 8000, null);
+        if (remoteSettings) {
+          const lockChanged = this.memoriesLocked !== remoteSettings.is_locked;
+          this.memoriesLocked = remoteSettings.is_locked;
+          this.memoriesPasscodeHash = remoteSettings.passcode_hash || DEFAULT_PASSCODE_HASH;
+          saveState('memoriesLocked', this.memoriesLocked);
+          saveState('memoriesPasscodeHash', this.memoriesPasscodeHash);
+          
+          if (lockChanged && this.memoriesLocked && !isUserAdmin(this.currentUser)) {
+            this.sessionUnlockedMemories = false;
+          }
+          notifyListeners();
         }
-        notifyListeners();
+      } catch (err) {
+        console.warn('Error syncing app settings:', err);
       }
-    } catch (err) {
-      console.warn('Error syncing app settings:', err);
-    }
+    });
   },
 
   handleRemoteProfileUpdate(updatedProfile: Profile) {
@@ -1055,6 +1103,11 @@ export const appStore = {
 
   async markCategoryAsRead(category: ChatCategory) {
     if (!this.currentUser) return;
+    const currentUnread = category === 'general' ? this.getGroupUnreadCount() : this.getUnreadMessageCount(category);
+    if (currentUnread === 0 && this.messageReads[category]) {
+      return;
+    }
+
     const now = new Date().toISOString();
     this.messageReads = {
       ...this.messageReads,
@@ -1068,6 +1121,11 @@ export const appStore = {
 
   async markDirectMessagesAsRead(friendId: string) {
     if (!this.currentUser || !friendId) return;
+    const currentUnread = this.getDirectUnreadCount(friendId);
+    if (currentUnread === 0 && this.messageReads[`dm_${friendId}`]) {
+      return;
+    }
+
     const now = new Date().toISOString();
     this.messageReads = {
       ...this.messageReads,
@@ -2387,7 +2445,10 @@ export const appStore = {
 export function useAppStore() {
   const [, setVersion] = useState(0);
   useEffect(() => {
-    return appStore.subscribe(() => setVersion(v => v + 1));
+    const unsubscribe = appStore.subscribe(() => setVersion(v => v + 1));
+    return () => {
+      unsubscribe();
+    };
   }, []);
   return appStore;
 }
