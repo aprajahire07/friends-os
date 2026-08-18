@@ -84,32 +84,18 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
 
   // Group Messages
   const groupMessages = useMemo(() => {
-    return store.messages.filter(m => {
-      const isDirect = m.category === 'direct' || Boolean(m.recipient_id) || m.category?.startsWith('dm_');
-      if (isDirect) return false;
-      if (!searchQuery) return true;
-      return m.content.toLowerCase().includes(searchQuery.toLowerCase());
-    });
-  }, [store.messages, searchQuery]);
+    const msgs = store.getGroupMessages();
+    if (!searchQuery) return msgs;
+    return msgs.filter(m => m.content.toLowerCase().includes(searchQuery.toLowerCase()));
+  }, [store.messages, store.clearedChats, searchQuery]);
 
   // Private Messages for the currently selected friend
   const privateMessages = useMemo(() => {
     if (!selectedFriendId) return [];
-    const myId = currentUser.id;
-    const fId = selectedFriendId;
-
-    return store.messages.filter(m => {
-      const isBetweenUs = 
-        (m.sender_id === myId && m.recipient_id === fId) ||
-        (m.sender_id === fId && m.recipient_id === myId) ||
-        (m.category === `dm_${fId}` && (m.sender_id === myId || m.sender_id === fId)) ||
-        (m.category === `dm_${myId}` && (m.sender_id === myId || m.sender_id === fId));
-
-      if (!isBetweenUs) return false;
-      if (!searchQuery) return true;
-      return m.content.toLowerCase().includes(searchQuery.toLowerCase());
-    });
-  }, [store.messages, selectedFriendId, currentUser.id, searchQuery]);
+    const msgs = store.getPrivateMessages(selectedFriendId);
+    if (!searchQuery) return msgs;
+    return msgs.filter(m => m.content.toLowerCase().includes(searchQuery.toLowerCase()));
+  }, [store.messages, store.clearedChats, selectedFriendId, searchQuery]);
 
   // Active messages list based on mode
   const currentMessages = activeMode === 'group' ? groupMessages : privateMessages;
@@ -221,16 +207,7 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
 
   // Helper for friend last message snippet
   const getFriendLastMessage = (friendId: string) => {
-    const myId = currentUser.id;
-    const friendMsgs = store.messages.filter(m => {
-      return (
-        (m.sender_id === myId && m.recipient_id === friendId) ||
-        (m.sender_id === friendId && m.recipient_id === myId) ||
-        (m.category === `dm_${friendId}` && (m.sender_id === myId || m.sender_id === friendId)) ||
-        (m.category === `dm_${myId}` && (m.sender_id === myId || m.sender_id === friendId))
-      );
-    });
-
+    const friendMsgs = store.getPrivateMessages(friendId);
     if (friendMsgs.length === 0) return null;
     return friendMsgs[friendMsgs.length - 1];
   };

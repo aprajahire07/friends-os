@@ -6,6 +6,43 @@ function isValidUUID(str?: string | null): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 }
 
+/**
+ * Parses raw Supabase message row into clean ChatMessage
+ * Transparently extracts recipient_id from column or <!--dm:ID--> tag
+ */
+export function mapMessageRow(row: any): ChatMessage {
+  let content = row.content || '';
+  let recipient_id = row.recipient_id || null;
+  let category: ChatCategory = (row.category as ChatCategory) || 'general';
+
+  // Check for embedded dm tag in content
+  if (typeof content === 'string' && content.startsWith('<!--dm:') && content.includes('-->')) {
+    const endIdx = content.indexOf('-->');
+    recipient_id = content.substring(7, endIdx).trim();
+    content = content.substring(endIdx + 3);
+    category = 'direct';
+  } else if (typeof row.category === 'string' && row.category.startsWith('dm_')) {
+    recipient_id = row.category.replace('dm_', '');
+    category = 'direct';
+  } else if (recipient_id) {
+    category = 'direct';
+  }
+
+  return {
+    id: row.id,
+    group_id: row.group_id,
+    sender_id: row.sender_id,
+    recipient_id: recipient_id,
+    category: category,
+    content: content,
+    media_url: row.media_url,
+    reply_to_id: row.reply_to_id,
+    reactions: row.reactions || {},
+    created_at: row.created_at,
+    sender: row.sender
+  };
+}
+
 export async function fetchMessagesFromSupabase(category?: ChatCategory): Promise<ChatMessage[] | null> {
   if (!isSupabaseConfigured || !supabase) return null;
 
@@ -15,18 +52,14 @@ export async function fetchMessagesFromSupabase(category?: ChatCategory): Promis
       .from('messages')
       .select('*, sender:sender_id(*)');
 
-    if (category) {
-      query = query.eq('category', category);
-    }
-
     const { data: primaryData, error: primaryErr } = await query.order('created_at', { ascending: true });
 
     if (primaryErr || !primaryData) {
-      let fallbackQuery = supabase.from('messages').select('*');
-      if (category) {
-        fallbackQuery = fallbackQuery.eq('category', category);
-      }
-      const { data: fallbackData, error: fallbackErr } = await fallbackQuery.order('created_at', { ascending: true });
+      const { data: fallbackData, error: fallbackErr } = await supabase
+        .from('messages')
+        .select('*')
+        .order('created_at', { ascending: true });
+
       if (fallbackErr) {
         console.warn('Supabase fetchMessages error:', fallbackErr.message);
         return null;
@@ -36,19 +69,7 @@ export async function fetchMessagesFromSupabase(category?: ChatCategory): Promis
       data = primaryData;
     }
 
-    return (data || []).map((row: any) => ({
-      id: row.id,
-      group_id: row.group_id,
-      sender_id: row.sender_id,
-      recipient_id: row.recipient_id || (typeof row.category === 'string' && row.category.startsWith('dm_') ? row.category.replace('dm_', '') : null),
-      category: (row.category as ChatCategory) || 'general',
-      content: row.content,
-      media_url: row.media_url,
-      reply_to_id: row.reply_to_id,
-      reactions: row.reactions || {},
-      created_at: row.created_at,
-      sender: row.sender
-    }));
+    return (data || []).map(mapMessageRow);
   } catch (err) {
     console.warn('Failed to fetch messages:', err);
     return null;
@@ -76,117 +97,85 @@ export async function sendMessageToSupabase(msg: Partial<ChatMessage>): Promise<
       effectiveSenderId = authUserId;
     }
 
-    const payload: any = {
+    // Format content with dm tag if private message to ensure 100% compatibility
+    let formattedContent = msg.content || '';
+    if (msg.recipient_id) {
+      formattedContent = `<!--dm:${msg.recipient_id}-->${formattedContent}`;
+    }
+
+    // Use 'general' category in database row to pass any CHECK (category IN (...)) constraint
+    const payloadWithRecipient: any = {
       sender_id: effectiveSenderId,
-      category: msg.category || (msg.recipient_id ? 'direct' : 'general'),
-      content: msg.content || '',
+      category: 'general',
+      content: formattedContent,
       media_url: msg.media_url || null,
     };
 
     if (msg.recipient_id && isValidUUID(msg.recipient_id)) {
-      payload.recipient_id = msg.recipient_id;
+      payloadWithRecipient.recipient_id = msg.recipient_id;
     }
 
     if (isValidUUID(msg.group_id)) {
-      payload.group_id = msg.group_id;
+      payloadWithRecipient.group_id = msg.group_id;
     }
 
     if (isValidUUID(msg.reply_to_id)) {
-      payload.reply_to_id = msg.reply_to_id;
+      payloadWithRecipient.reply_to_id = msg.reply_to_id;
     }
 
-    const { data, error } = await supabase
+    // First attempt: insert with recipient_id column
+    const { data: primaryData, error: primaryErr } = await supabase
       .from('messages')
-      .insert([payload])
+      .insert([payloadWithRecipient])
       .select()
       .single();
 
-    if (error) {
-      // If recipient_id column is not in DB schema yet, try without recipient_id column
-      if (error.message?.includes('recipient_id') || error.code === '42703') {
-        const fallbackPayload = { ...payload };
-        delete fallbackPayload.recipient_id;
-        fallbackPayload.category = msg.recipient_id ? `dm_${msg.recipient_id}` : (msg.category || 'general');
-        
-        const { data: fbData, error: fbErr } = await supabase
-          .from('messages')
-          .insert([fallbackPayload])
-          .select()
-          .single();
-
-        if (!fbErr && fbData) {
-          return {
-            id: fbData.id,
-            group_id: fbData.group_id,
-            sender_id: msg.sender_id,
-            recipient_id: msg.recipient_id,
-            category: msg.category || 'direct',
-            content: fbData.content,
-            media_url: fbData.media_url,
-            reply_to_id: fbData.reply_to_id,
-            reactions: fbData.reactions || {},
-            created_at: fbData.created_at,
-            sender: msg.sender
-          };
-        }
-      }
-
-      const isRlsError = 
-        error.message?.includes('row-level security') || 
-        error.message?.includes('policy') || 
-        error.code === '42501' || 
-        error.code === 'PGRST301';
-
-      if (isRlsError) {
-        if (authUserId && effectiveSenderId !== authUserId) {
-          try {
-            payload.sender_id = authUserId;
-            const { data: retryData, error: retryErr } = await supabase
-              .from('messages')
-              .insert([payload])
-              .select()
-              .single();
-
-            if (!retryErr && retryData) {
-              return {
-                id: retryData.id,
-                group_id: retryData.group_id,
-                sender_id: msg.sender_id || retryData.sender_id,
-                recipient_id: msg.recipient_id,
-                category: retryData.category as ChatCategory,
-                content: retryData.content,
-                media_url: retryData.media_url,
-                reply_to_id: retryData.reply_to_id,
-                reactions: retryData.reactions || {},
-                created_at: retryData.created_at,
-                sender: msg.sender
-              };
-            }
-          } catch {
-            // Ignore retry error
-          }
-        }
-        console.info('Supabase messages insert note (RLS/session policy):', error.message);
-        return null;
-      }
-
-      console.warn('Supabase message send notice:', error.message);
-      return null;
+    if (!primaryErr && primaryData) {
+      return {
+        ...mapMessageRow(primaryData),
+        sender: msg.sender,
+        recipient: msg.recipient
+      };
     }
 
-    return {
-      id: data.id,
-      group_id: data.group_id,
-      sender_id: data.sender_id,
-      recipient_id: data.recipient_id || msg.recipient_id,
-      category: data.category as ChatCategory,
-      content: data.content,
-      media_url: data.media_url,
-      reply_to_id: data.reply_to_id,
-      reactions: data.reactions || {},
-      created_at: data.created_at,
-      sender: msg.sender
-    };
+    // Fallback attempt: If recipient_id column doesn't exist, insert without recipient_id column
+    const fallbackPayload = { ...payloadWithRecipient };
+    delete fallbackPayload.recipient_id;
+
+    const { data: fbData, error: fbErr } = await supabase
+      .from('messages')
+      .insert([fallbackPayload])
+      .select()
+      .single();
+
+    if (!fbErr && fbData) {
+      return {
+        ...mapMessageRow(fbData),
+        sender: msg.sender,
+        recipient: msg.recipient
+      };
+    }
+
+    // RLS Retry with authUserId if needed
+    if (authUserId && effectiveSenderId !== authUserId) {
+      fallbackPayload.sender_id = authUserId;
+      const { data: retryData, error: retryErr } = await supabase
+        .from('messages')
+        .insert([fallbackPayload])
+        .select()
+        .single();
+
+      if (!retryErr && retryData) {
+        return {
+          ...mapMessageRow(retryData),
+          sender: msg.sender,
+          recipient: msg.recipient
+        };
+      }
+    }
+
+    console.warn('Supabase message send notice:', primaryErr?.message || fbErr?.message);
+    return null;
   } catch (err: any) {
     console.info('Message send notice:', err?.message || err);
     return null;
@@ -198,26 +187,26 @@ export async function clearMessagesFromSupabase(options: {
   userId?: string;
   friendId?: string;
 }): Promise<boolean> {
-  if (!isSupabaseConfigured || !supabase) return false;
+  if (!isSupabaseConfigured || !supabase || !options.userId) return false;
 
   try {
+    const myId = options.userId;
+
     if (options.isGroup) {
-      // Clear group messages
+      // Delete user's own group messages
       await supabase
         .from('messages')
         .delete()
-        .neq('category', 'direct')
-        .not('category', 'like', 'dm_%');
+        .eq('sender_id', myId)
+        .not('content', 'like', '<!--dm:%');
       return true;
-    } else if (options.userId && options.friendId) {
-      // Clear DM messages between userId and friendId
-      const uId = options.userId;
-      const fId = options.friendId;
-      
+    } else if (options.friendId) {
+      // Delete user's direct messages sent to friend
       await supabase
         .from('messages')
         .delete()
-        .or(`and(sender_id.eq.${uId},recipient_id.eq.${fId}),and(sender_id.eq.${fId},recipient_id.eq.${uId}),category.eq.dm_${fId},category.eq.dm_${uId}`);
+        .eq('sender_id', myId)
+        .or(`recipient_id.eq.${options.friendId},content.like.<!--dm:${options.friendId}-->%`);
       return true;
     }
     return false;
@@ -250,32 +239,33 @@ export async function fetchMessageReadsFromSupabase(userId: string): Promise<Rec
 
     return map;
   } catch (err) {
-    console.warn('Failed to fetch message reads:', err);
+    console.warn('fetchMessageReads error:', err);
     return null;
   }
 }
 
-export async function markCategoryAsReadInSupabase(userId: string, category: ChatCategory): Promise<boolean> {
+export async function markCategoryAsReadInSupabase(userId: string, category: string): Promise<boolean> {
   if (!isSupabaseConfigured || !supabase || !userId) return false;
 
   try {
-    const now = new Date().toISOString();
     const { error } = await supabase
       .from('message_reads')
-      .upsert({
-        user_id: userId,
-        category: category,
-        last_read_at: now
-      }, { onConflict: 'user_id,category' });
+      .upsert(
+        {
+          user_id: userId,
+          category,
+          last_read_at: new Date().toISOString()
+        },
+        { onConflict: 'user_id, category' }
+      );
 
     if (error) {
-      console.warn('Error updating message read status in Supabase:', error.message);
+      console.warn('Could not update message_reads in Supabase:', error.message);
       return false;
     }
-
     return true;
   } catch (err) {
-    console.warn('Failed to mark category as read in Supabase:', err);
+    console.warn('markCategoryAsRead error:', err);
     return false;
   }
 }
@@ -284,46 +274,24 @@ export async function markAllCategoriesAsReadInSupabase(userId: string): Promise
   if (!isSupabaseConfigured || !supabase || !userId) return false;
 
   try {
-    const now = new Date().toISOString();
-    const categories: ChatCategory[] = ['general', 'college', 'plans', 'memories', 'random'];
-    const rows = categories.map(category => ({
+    const categories = ['general', 'college', 'plans', 'memories', 'random', 'direct'];
+    const rows = categories.map(cat => ({
       user_id: userId,
-      category,
-      last_read_at: now
+      category: cat,
+      last_read_at: new Date().toISOString()
     }));
 
     const { error } = await supabase
       .from('message_reads')
-      .upsert(rows, { onConflict: 'user_id,category' });
+      .upsert(rows, { onConflict: 'user_id, category' });
 
     if (error) {
-      console.warn('Error marking all categories as read in Supabase:', error.message);
+      console.warn('markAllCategories error:', error.message);
       return false;
     }
-
     return true;
   } catch (err) {
-    console.warn('Failed to mark all categories as read in Supabase:', err);
+    console.warn('markAllCategories error:', err);
     return false;
   }
 }
-
-export function subscribeToRealtimeMessages(onNewMessage: (msg: any) => void) {
-  if (!isSupabaseConfigured || !supabase) return () => {};
-
-  const channel = supabase
-    .channel('public:messages')
-    .on(
-      'postgres_changes',
-      { event: 'INSERT', schema: 'public', table: 'messages' },
-      (payload) => {
-        onNewMessage(payload.new);
-      }
-    )
-    .subscribe();
-
-  return () => {
-    supabase.removeChannel(channel);
-  };
-}
-

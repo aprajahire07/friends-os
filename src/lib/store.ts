@@ -145,6 +145,7 @@ export const appStore = {
   streaks: [] as { friend_id: string; streak_count: number }[],
   notifications: loadInitialState<AppNotification[]>('notifications', []),
   messageReads: loadInitialState<Record<string, string>>('messageReads', {}),
+  clearedChats: loadInitialState<Record<string, string>>('clearedChats', {}),
   
   // Memories Lock & Security (Admin controlled)
   memoriesLocked: loadInitialState<boolean>('memoriesLocked', true),
@@ -271,11 +272,31 @@ export const appStore = {
   },
 
   async syncMessages() {
-    if (!isSupabaseConfigured) return;
+    if (!isSupabaseConfigured || !this.currentUser) return;
     try {
       const remoteMessages = await fetchMessagesFromSupabase();
       if (remoteMessages) {
-        this.messages = remoteMessages;
+        // Build sender profile lookup
+        const profileMap = new Map(this.profiles.map(p => [p.id, p]));
+        if (this.currentUser) profileMap.set(this.currentUser.id, this.currentUser);
+
+        const enrichedRemote = remoteMessages.map(m => ({
+          ...m,
+          sender: profileMap.get(m.sender_id) || m.sender,
+          recipient: m.recipient_id ? profileMap.get(m.recipient_id) || m.recipient : undefined
+        }));
+
+        // Preserve optimistic local messages that are still pending
+        const pendingOptimistic = this.messages.filter(
+          m => m.id.startsWith('msg-') && !enrichedRemote.some(rm => rm.id === m.id)
+        );
+
+        // Merge and sort
+        const combined = [...enrichedRemote, ...pendingOptimistic].sort(
+          (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        );
+
+        this.messages = combined;
         saveState('messages', this.messages);
         notifyListeners();
       }
@@ -871,34 +892,135 @@ export const appStore = {
     return newMsg;
   },
 
+  getClearedChatTime(chatKey: string): number {
+    if (!this.currentUser) return 0;
+    const userCleared = this.clearedChats || {};
+    const localCleared = loadInitialState<Record<string, string>>(`clearedChats_${this.currentUser.id}`, {});
+    const timestampStr = userCleared[chatKey] || localCleared[chatKey];
+    if (!timestampStr) return 0;
+    return new Date(timestampStr).getTime();
+  },
+
   async clearGroupChat() {
     if (!this.currentUser) return;
-    // Remove group chat messages
-    this.messages = this.messages.filter(m => m.category === 'direct' || Boolean(m.recipient_id) || m.category?.startsWith('dm_'));
+    const nowIso = new Date().toISOString();
+    const myId = this.currentUser.id;
+
+    // Update clearedChats map
+    this.clearedChats = {
+      ...this.clearedChats,
+      group: nowIso
+    };
+    saveState(`clearedChats_${myId}`, this.clearedChats);
+
+    // Filter local memory
+    const clearCutoff = new Date(nowIso).getTime();
+    this.messages = this.messages.filter(m => {
+      const isGroup = !m.recipient_id && m.category !== 'direct' && !m.category?.startsWith('dm_');
+      if (isGroup) {
+        return new Date(m.created_at).getTime() > clearCutoff;
+      }
+      return true;
+    });
+
     saveState('messages', this.messages);
     notifyListeners();
 
-    await clearMessagesFromSupabase({ isGroup: true });
+    await clearMessagesFromSupabase({ isGroup: true, userId: myId });
   },
 
   async clearPrivateChat(friendId: string) {
     if (!this.currentUser || !friendId) return;
+    const nowIso = new Date().toISOString();
     const myId = this.currentUser.id;
 
-    // Remove direct messages between myId and friendId
+    // Update clearedChats map
+    const chatKey = `dm_${friendId}`;
+    this.clearedChats = {
+      ...this.clearedChats,
+      [chatKey]: nowIso
+    };
+    saveState(`clearedChats_${myId}`, this.clearedChats);
+
+    // Filter local memory
+    const clearCutoff = new Date(nowIso).getTime();
     this.messages = this.messages.filter(m => {
       const isDirectChat = 
         (m.sender_id === myId && m.recipient_id === friendId) ||
         (m.sender_id === friendId && m.recipient_id === myId) ||
         (m.category === `dm_${friendId}` && (m.sender_id === myId || m.sender_id === friendId)) ||
         (m.category === `dm_${myId}` && (m.sender_id === myId || m.sender_id === friendId));
-      return !isDirectChat;
+
+      if (isDirectChat) {
+        return new Date(m.created_at).getTime() > clearCutoff;
+      }
+      return true;
     });
 
     saveState('messages', this.messages);
     notifyListeners();
 
     await clearMessagesFromSupabase({ userId: myId, friendId });
+  },
+
+  getGroupMessages(): ChatMessage[] {
+    if (!this.currentUser) return [];
+    const clearTime = this.getClearedChatTime('group');
+
+    return this.messages.filter(m => {
+      const isGroup = !m.recipient_id && m.category !== 'direct' && !m.category?.startsWith('dm_');
+      if (!isGroup) return false;
+      if (clearTime && new Date(m.created_at).getTime() <= clearTime) return false;
+      return true;
+    });
+  },
+
+  getPrivateMessages(friendId: string): ChatMessage[] {
+    if (!this.currentUser || !friendId) return [];
+    const myId = this.currentUser.id;
+    const clearTime = this.getClearedChatTime(`dm_${friendId}`);
+
+    return this.messages.filter(m => {
+      const isBetweenUs = 
+        (m.sender_id === myId && m.recipient_id === friendId) ||
+        (m.sender_id === friendId && m.recipient_id === myId) ||
+        (m.category === `dm_${friendId}` && (m.sender_id === myId || m.sender_id === friendId)) ||
+        (m.category === `dm_${myId}` && (m.sender_id === myId || m.sender_id === friendId));
+
+      if (!isBetweenUs) return false;
+      if (clearTime && new Date(m.created_at).getTime() <= clearTime) return false;
+      return true;
+    });
+  },
+
+  getDirectUnreadCount(friendId: string): number {
+    if (!this.currentUser || !friendId) return 0;
+    const myId = this.currentUser.id;
+    const lastRead = this.messageReads[`dm_${friendId}`] || '1970-01-01T00:00:00.000Z';
+    const lastReadTime = new Date(lastRead).getTime();
+    const clearTime = this.getClearedChatTime(`dm_${friendId}`);
+    const effectiveCutoff = Math.max(lastReadTime, clearTime);
+
+    return this.messages.filter(m => {
+      const isFromFriendToMe = 
+        m.sender_id === friendId && 
+        (m.recipient_id === myId || m.category === 'direct' || m.category === `dm_${myId}`);
+      return isFromFriendToMe && new Date(m.created_at).getTime() > effectiveCutoff;
+    }).length;
+  },
+
+  getGroupUnreadCount(): number {
+    if (!this.currentUser) return 0;
+    const myId = this.currentUser.id;
+    const lastRead = this.messageReads['general'] || '1970-01-01T00:00:00.000Z';
+    const lastReadTime = new Date(lastRead).getTime();
+    const clearTime = this.getClearedChatTime('group');
+    const effectiveCutoff = Math.max(lastReadTime, clearTime);
+
+    return this.messages.filter(m => {
+      const isGroup = !m.recipient_id && m.category !== 'direct' && !m.category?.startsWith('dm_');
+      return isGroup && m.sender_id !== myId && new Date(m.created_at).getTime() > effectiveCutoff;
+    }).length;
   },
 
   toggleReaction(messageId: string, emoji: string) {
@@ -972,32 +1094,6 @@ export const appStore = {
     notifyListeners();
 
     await markAllCategoriesAsReadInSupabase(this.currentUser.id);
-  },
-
-  getDirectUnreadCount(friendId: string): number {
-    if (!this.currentUser || !friendId) return 0;
-    const myId = this.currentUser.id;
-    const lastRead = this.messageReads[`dm_${friendId}`] || '1970-01-01T00:00:00.000Z';
-    const lastReadTime = new Date(lastRead).getTime();
-
-    return this.messages.filter(m => {
-      const isFromFriendToMe = 
-        m.sender_id === friendId && 
-        (m.recipient_id === myId || m.category === 'direct' || m.category === `dm_${myId}`);
-      return isFromFriendToMe && new Date(m.created_at).getTime() > lastReadTime;
-    }).length;
-  },
-
-  getGroupUnreadCount(): number {
-    if (!this.currentUser) return 0;
-    const myId = this.currentUser.id;
-    const lastRead = this.messageReads['general'] || '1970-01-01T00:00:00.000Z';
-    const lastReadTime = new Date(lastRead).getTime();
-
-    return this.messages.filter(m => {
-      const isGroup = !m.recipient_id && m.category !== 'direct' && !m.category?.startsWith('dm_');
-      return isGroup && m.sender_id !== myId && new Date(m.created_at).getTime() > lastReadTime;
-    }).length;
   },
 
   getUnreadMessageCount(category?: ChatCategory): number {
