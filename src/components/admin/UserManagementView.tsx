@@ -40,12 +40,14 @@ export const UserManagementView: React.FC = () => {
   const [userToEdit, setUserToEdit] = useState<Profile | null>(null);
   const [editFullName, setEditFullName] = useState('');
   const [editUsername, setEditUsername] = useState('');
+  const [editBirthday, setEditBirthday] = useState('');
   const [editCollege, setEditCollege] = useState('');
 
   const handleOpenEditUser = (profile: Profile) => {
     setUserToEdit(profile);
     setEditFullName(profile.full_name);
     setEditUsername(profile.username);
+    setEditBirthday(profile.birthday || '2004-09-15');
     setEditCollege(profile.college || 'GHRCEMN');
   };
 
@@ -57,9 +59,10 @@ export const UserManagementView: React.FC = () => {
       await appStore.adminUpdateUserProfile(userToEdit.id, {
         full_name: editFullName.trim(),
         username: editUsername.trim().toLowerCase() || userToEdit.username,
+        birthday: editBirthday.trim() || userToEdit.birthday,
         college: editCollege.trim() || userToEdit.college
       });
-      showToast('Profile Updated! ✅', `${editFullName}'s details have been saved.`, 'success');
+      showToast('Profile Updated! ✅', `${editFullName}'s details (Name, Username, Birthday, College) have been updated across the network.`, 'success');
       setUserToEdit(null);
     } catch (e: any) {
       showToast('Update Failed', e?.message || 'Could not update user profile.', 'error');
@@ -258,6 +261,9 @@ export const UserManagementView: React.FC = () => {
                         <span>{profile.email}</span>
                       </span>
                       <span className="font-mono text-slate-500">@{profile.username}</span>
+                      <span className="flex items-center gap-1 text-[11px] text-amber-300/80 bg-amber-950/40 px-2 py-0.5 rounded-lg border border-amber-900/50">
+                        🎂 {profile.birthday ? new Date(profile.birthday).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : 'No B-Day'}
+                      </span>
                       <span className="flex items-center gap-1 text-[11px] text-slate-500">
                         <Calendar className="w-3 h-3" /> Joined {joinDate}
                       </span>
@@ -350,6 +356,19 @@ export const UserManagementView: React.FC = () => {
                   onChange={e => setEditUsername(e.target.value)}
                   placeholder="e.g. shreyash"
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1 flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Birthdate (YYYY-MM-DD)</span>
+                </label>
+                <input
+                  type="date"
+                  value={editBirthday}
+                  onChange={e => setEditBirthday(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500 [color-scheme:dark]"
                 />
               </div>
 

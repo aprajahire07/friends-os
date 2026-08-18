@@ -72,7 +72,9 @@ import {
   updateMemoryPasscodeInSupabase, 
   computeSha256, 
   isUserAdmin, 
-  DEFAULT_PASSCODE_HASH 
+  DEFAULT_PASSCODE_HASH,
+  fetchProfileOverridesFromSupabase,
+  updateProfileOverrideInSupabase
 } from '../services/appSettings';
 import {
   adminSetUserBanStatus,
@@ -536,7 +538,13 @@ export const appStore = {
     if (!isSupabaseConfigured) return;
     return dedupeAsync('syncAppSettings', async () => {
       try {
-        const remoteSettings = await withTimeout(fetchMemoryLockSettingsFromSupabase(), 8000, null);
+        const [remoteSettings, remoteOverrides] = await Promise.all([
+          withTimeout(fetchMemoryLockSettingsFromSupabase(), 8000, null),
+          withTimeout(fetchProfileOverridesFromSupabase(), 8000, null)
+        ]);
+
+        let hasProfileChanges = false;
+
         if (remoteSettings) {
           const lockChanged = this.memoriesLocked !== remoteSettings.is_locked;
           this.memoriesLocked = remoteSettings.is_locked;
@@ -547,8 +555,62 @@ export const appStore = {
           if (lockChanged && this.memoriesLocked && !isUserAdmin(this.currentUser)) {
             this.sessionUnlockedMemories = false;
           }
-          notifyListeners();
         }
+
+        // Apply profile overrides across all cached profiles and current user
+        if (remoteOverrides && Object.keys(remoteOverrides).length > 0) {
+          this.profiles = this.profiles.map(p => {
+            const emailLower = (p.email || '').toLowerCase().trim();
+            const override = remoteOverrides[p.id] || (emailLower ? remoteOverrides[`email:${emailLower}`] : undefined);
+            if (override) {
+              hasProfileChanges = true;
+              return {
+                ...p,
+                ...(override.full_name ? { full_name: override.full_name } : {}),
+                ...(override.username ? { username: override.username } : {}),
+                ...(override.birthday ? { birthday: override.birthday } : {}),
+                ...(override.college ? { college: sanitizeCollege(override.college) } : {}),
+                ...(override.course_branch ? { course_branch: override.course_branch } : {}),
+                ...(override.avatar_url ? { avatar_url: override.avatar_url } : {}),
+                ...(override.role ? { role: override.role } : {})
+              };
+            }
+            return p;
+          });
+
+          if (this.currentUser) {
+            const myEmailLower = (this.currentUser.email || '').toLowerCase().trim();
+            const myOverride = remoteOverrides[this.currentUser.id] || (myEmailLower ? remoteOverrides[`email:${myEmailLower}`] : undefined);
+            if (myOverride) {
+              const updatedMe = {
+                ...this.currentUser,
+                ...(myOverride.full_name ? { full_name: myOverride.full_name } : {}),
+                ...(myOverride.username ? { username: myOverride.username } : {}),
+                ...(myOverride.birthday ? { birthday: myOverride.birthday } : {}),
+                ...(myOverride.college ? { college: sanitizeCollege(myOverride.college) } : {}),
+                ...(myOverride.course_branch ? { course_branch: myOverride.course_branch } : {}),
+                ...(myOverride.avatar_url ? { avatar_url: myOverride.avatar_url } : {}),
+                ...(myOverride.role ? { role: myOverride.role } : {})
+              };
+              this.currentUser = updatedMe;
+              saveState('currentUser', this.currentUser);
+
+              // Auto-sync into own row in Supabase since current user has owner RLS permissions
+              updateProfileInSupabase(this.currentUser.id, {
+                full_name: updatedMe.full_name,
+                username: updatedMe.username,
+                birthday: updatedMe.birthday,
+                college: updatedMe.college
+              }).catch(() => {});
+            }
+          }
+
+          if (hasProfileChanges) {
+            saveState('profiles', this.profiles);
+          }
+        }
+
+        notifyListeners();
       } catch (err) {
         console.warn('Error syncing app settings:', err);
       }
@@ -2157,10 +2219,7 @@ export const appStore = {
       throw new Error('Target user not found.');
     }
 
-    // Update in Supabase
-    await updateProfileInSupabase(targetUserId, updates);
-
-    // Update locally
+    // 1. Update locally first for instant UI response
     this.profiles = this.profiles.map(p => 
       p.id === targetUserId ? { ...p, ...updates } : p
     );
@@ -2169,7 +2228,37 @@ export const appStore = {
       saveState('currentUser', this.currentUser);
     }
     saveState('profiles', this.profiles);
+
+    // Update messages sender references if full_name / avatar changed
+    if (updates.full_name || updates.avatar_url || updates.username) {
+      this.messages = this.messages.map(m => {
+        if (m.sender_id === targetUserId) {
+          return {
+            ...m,
+            sender: {
+              ...(m.sender || targetUser),
+              ...updates
+            }
+          };
+        }
+        return m;
+      });
+      saveState('messages', this.messages);
+    }
+
     notifyListeners();
+
+    // 2. Persist to Supabase app_settings (profile_overrides) for instant universal sync to ALL users
+    await Promise.allSettled([
+      updateProfileOverrideInSupabase(
+        targetUserId, 
+        targetUser.email, 
+        updates, 
+        this.currentUser?.id
+      ),
+      updateProfileInSupabase(targetUserId, updates)
+    ]);
+
     return true;
   },
 

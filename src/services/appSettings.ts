@@ -370,3 +370,146 @@ export async function updateBannedUserInSupabase(
   }
 }
 
+// ----------------------------------------------------
+// Global Profile Overrides (Admin Name/Username/Details Sync)
+// ----------------------------------------------------
+export interface ProfileOverride {
+  full_name?: string;
+  username?: string;
+  birthday?: string;
+  college?: string;
+  course_branch?: string;
+  avatar_url?: string;
+  role?: 'admin' | 'member' | 'guest';
+  updated_at?: string;
+}
+
+export type ProfileOverridesMap = Record<string, ProfileOverride>;
+
+export function getLocalProfileOverrides(): ProfileOverridesMap {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem('friend_os_profile_overrides');
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveLocalProfileOverrides(overrides: ProfileOverridesMap) {
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem('friend_os_profile_overrides', JSON.stringify(overrides));
+    } catch {
+      // Ignore storage errors
+    }
+  }
+}
+
+export async function fetchProfileOverridesFromSupabase(): Promise<ProfileOverridesMap> {
+  const localOverrides = getLocalProfileOverrides();
+  if (!isSupabaseConfigured || !supabase) return localOverrides;
+
+  try {
+    const { data, error } = await supabase
+      .from('app_settings')
+      .select('*')
+      .eq('key', 'profile_overrides')
+      .maybeSingle();
+
+    if (error) {
+      return localOverrides;
+    }
+
+    if (data && data.value && typeof data.value === 'object') {
+      const merged: ProfileOverridesMap = {
+        ...localOverrides,
+        ...(data.value.overrides || data.value)
+      };
+      saveLocalProfileOverrides(merged);
+      return merged;
+    }
+
+    return localOverrides;
+  } catch (err) {
+    return localOverrides;
+  }
+}
+
+export async function updateProfileOverrideInSupabase(
+  targetUserId: string,
+  targetEmail: string | undefined,
+  updates: Partial<Profile>,
+  adminUserId?: string
+): Promise<boolean> {
+  const local = getLocalProfileOverrides();
+  const newOverride: ProfileOverride = {
+    ...(local[targetUserId] || {}),
+    ...(updates.full_name !== undefined ? { full_name: updates.full_name } : {}),
+    ...(updates.username !== undefined ? { username: updates.username } : {}),
+    ...(updates.birthday !== undefined ? { birthday: updates.birthday } : {}),
+    ...(updates.college !== undefined ? { college: updates.college } : {}),
+    ...(updates.course_branch !== undefined ? { course_branch: updates.course_branch } : {}),
+    ...(updates.avatar_url !== undefined ? { avatar_url: updates.avatar_url } : {}),
+    ...(updates.role !== undefined ? { role: updates.role } : {}),
+    updated_at: new Date().toISOString()
+  };
+
+  const updatedOverrides: ProfileOverridesMap = {
+    ...local,
+    [targetUserId]: newOverride
+  };
+
+  // If email is provided, also index by lowercase email for bulletproof fallback
+  if (targetEmail) {
+    const emailKey = `email:${targetEmail.toLowerCase().trim()}`;
+    updatedOverrides[emailKey] = newOverride;
+  }
+
+  saveLocalProfileOverrides(updatedOverrides);
+
+  if (!isSupabaseConfigured || !supabase) return true;
+
+  try {
+    // 1. Fetch remote record to merge cleanly
+    const { data } = await supabase
+      .from('app_settings')
+      .select('*')
+      .eq('key', 'profile_overrides')
+      .maybeSingle();
+
+    let remoteMap: ProfileOverridesMap = {};
+    if (data && data.value) {
+      remoteMap = (data.value.overrides || data.value) as ProfileOverridesMap;
+    }
+
+    const mergedRemote: ProfileOverridesMap = {
+      ...remoteMap,
+      ...updatedOverrides
+    };
+
+    const upsertPayload: any = {
+      key: 'profile_overrides',
+      value: {
+        overrides: mergedRemote,
+        updated_at: new Date().toISOString()
+      },
+      updated_at: new Date().toISOString()
+    };
+    if (adminUserId && isUUID(adminUserId)) {
+      upsertPayload.updated_by = adminUserId;
+    }
+
+    const { error } = await supabase
+      .from('app_settings')
+      .upsert(upsertPayload, { onConflict: 'key' });
+
+    if (error) {
+      console.warn('Supabase app_settings profile_overrides note:', error.message);
+    }
+    return true;
+  } catch (err) {
+    return true;
+  }
+}
+

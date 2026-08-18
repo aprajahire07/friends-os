@@ -1,6 +1,12 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { Profile } from '../types';
-import { isUserIdBannedLocally, fetchBannedUserIdsFromSupabase } from './appSettings';
+import { 
+  isUserIdBannedLocally, 
+  fetchBannedUserIdsFromSupabase,
+  getLocalProfileOverrides,
+  fetchProfileOverridesFromSupabase,
+  ProfileOverridesMap
+} from './appSettings';
 
 export function sanitizeCollege(college?: string): string {
   if (!college) return 'GHRCEMN';
@@ -13,7 +19,11 @@ export function sanitizeCollege(college?: string): string {
     .trim();
 }
 
-export function mapProfileFromSupabase(row: any, bannedUserIds?: string[]): Profile {
+export function mapProfileFromSupabase(
+  row: any, 
+  bannedUserIds?: string[], 
+  profileOverrides?: ProfileOverridesMap
+): Profile {
   const isBanned = Boolean(
     row.is_banned === true ||
     row.status === 'banned' ||
@@ -24,6 +34,24 @@ export function mapProfileFromSupabase(row: any, bannedUserIds?: string[]): Prof
   const emailLower = (row.email || '').toLowerCase().trim();
   let fullName = row.full_name || 'User';
   let username = row.username || 'user';
+  let college = sanitizeCollege(row.college);
+  let courseBranch = row.course_branch || 'Computer Science & Engineering';
+  let avatarUrl = row.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=250&q=80';
+  let birthday = row.birthday || '2004-09-15';
+  let role: 'admin' | 'member' = row.role === 'admin' ? 'admin' : 'member';
+
+  // Apply admin global profile overrides if present
+  const overrides = profileOverrides || getLocalProfileOverrides();
+  const override = overrides[row.id] || (emailLower ? overrides[`email:${emailLower}`] : undefined);
+  if (override) {
+    if (override.full_name) fullName = override.full_name;
+    if (override.username) username = override.username;
+    if (override.birthday) birthday = override.birthday;
+    if (override.college) college = sanitizeCollege(override.college);
+    if (override.course_branch) courseBranch = override.course_branch;
+    if (override.avatar_url) avatarUrl = override.avatar_url;
+    if (override.role) role = override.role === 'admin' ? 'admin' : 'member';
+  }
 
   // Override / Fix requested for shreyashjivtode2@gmail.com
   if (emailLower === 'shreyashjivtode2@gmail.com') {
@@ -38,12 +66,12 @@ export function mapProfileFromSupabase(row: any, bannedUserIds?: string[]): Prof
     email: row.email || '',
     full_name: fullName,
     username: username,
-    avatar_url: row.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=250&q=80',
-    birthday: row.birthday || '2004-09-15',
-    college: sanitizeCollege(row.college),
-    course_branch: row.course_branch || 'Computer Science & Engineering',
+    avatar_url: avatarUrl,
+    birthday: birthday,
+    college: college,
+    course_branch: courseBranch,
     semester: Number(row.semester) || 3,
-    role: row.role === 'admin' ? 'admin' : 'member',
+    role: role,
     status_emoji: isBanned ? '🚫' : (row.status_emoji || (row.status_preset ? row.status_preset.split(' ')[0] : '🟢')),
     status_preset: isBanned ? '🚫 Banned' : (row.status_preset || '🟢 Available'),
     status_text: row.status_text || row.custom_status || '',
@@ -61,9 +89,10 @@ export async function fetchProfilesFromSupabase(): Promise<Profile[] | null> {
   if (!isSupabaseConfigured || !supabase) return null;
   
   try {
-    const [profilesRes, bannedUserIds] = await Promise.all([
+    const [profilesRes, bannedUserIds, profileOverrides] = await Promise.all([
       supabase.from('profiles').select('*').order('created_at', { ascending: true }),
-      fetchBannedUserIdsFromSupabase()
+      fetchBannedUserIdsFromSupabase(),
+      fetchProfileOverridesFromSupabase()
     ]);
 
     if (profilesRes.error) {
@@ -86,7 +115,7 @@ export async function fetchProfilesFromSupabase(): Promise<Profile[] | null> {
       }
     }
 
-    return profilesRes.data.map(row => mapProfileFromSupabase(row, bannedUserIds));
+    return profilesRes.data.map(row => mapProfileFromSupabase(row, bannedUserIds, profileOverrides));
   } catch (err) {
     console.warn('Error fetching profiles from Supabase:', err);
     return null;
