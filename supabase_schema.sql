@@ -967,7 +967,7 @@ CREATE OR REPLACE FUNCTION public.verify_note_password(
 RETURNS BOOLEAN
 LANGUAGE plpgsql
 SECURITY DEFINER
-AS $
+AS $$
 DECLARE
   v_stored_hash TEXT;
   v_is_protected BOOLEAN;
@@ -999,30 +999,36 @@ BEGIN
 
   RETURN (p_password_hash = v_stored_hash);
 END;
-$;
+$$;
 
 -- STORAGE BUCKETS SETUP
-INSERT INTO storage.buckets (id, name, public) VALUES 
-  ('avatars', 'avatars', true),
-  ('memories', 'memories', true),
-  ('chat-media', 'chat-media', true),
-  ('payment-qr', 'payment-qr', true),
-  ('snaps', 'snaps', false),
-  ('notes', 'notes', false)
-ON CONFLICT (id) DO NOTHING;
+INSERT INTO storage.buckets (id, name, public, file_size_limit) VALUES 
+  ('avatars', 'avatars', true, 52428800),
+  ('memories', 'memories', true, 52428800),
+  ('chat-media', 'chat-media', true, 52428800),
+  ('payment-qr', 'payment-qr', true, 52428800),
+  ('snaps', 'snaps', false, 52428800),
+  ('notes', 'notes', false, 52428800),
+  ('study-notes', 'study-notes', false, 52428800),
+  ('documents', 'documents', false, 52428800),
+  ('friend-os-files', 'friend-os-files', false, 52428800)
+ON CONFLICT (id) DO UPDATE SET 
+  file_size_limit = 52428800;
 
 -- STORAGE POLICIES
 DROP POLICY IF EXISTS "Public Read Avatars" ON storage.objects;
 CREATE POLICY "Public Read Avatars" ON storage.objects FOR SELECT USING (bucket_id = 'avatars');
 DROP POLICY IF EXISTS "Auth Upload Avatars" ON storage.objects;
 CREATE POLICY "Auth Upload Avatars" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'avatars' AND auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Auth Update Avatars" ON storage.objects;
+CREATE POLICY "Auth Update Avatars" ON storage.objects FOR UPDATE USING (bucket_id = 'avatars' AND auth.role() = 'authenticated');
 
 DROP POLICY IF EXISTS "Group Read Memories" ON storage.objects;
-CREATE POLICY "Group Read Memories" ON storage.objects FOR SELECT USING (bucket_id = 'memories');
+CREATE POLICY "Group Read Memories" ON storage.objects FOR SELECT USING (bucket_id IN ('memories', 'friend-os-files'));
 DROP POLICY IF EXISTS "Auth Upload Memories" ON storage.objects;
-CREATE POLICY "Auth Upload Memories" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'memories' AND auth.role() = 'authenticated');
+CREATE POLICY "Auth Upload Memories" ON storage.objects FOR INSERT WITH CHECK (bucket_id IN ('memories', 'friend-os-files') AND auth.role() = 'authenticated');
 DROP POLICY IF EXISTS "Auth Delete Memories" ON storage.objects;
-CREATE POLICY "Auth Delete Memories" ON storage.objects FOR DELETE USING (bucket_id = 'memories' AND auth.role() = 'authenticated');
+CREATE POLICY "Auth Delete Memories" ON storage.objects FOR DELETE USING (bucket_id IN ('memories', 'friend-os-files') AND auth.role() = 'authenticated');
 
 DROP POLICY IF EXISTS "Group Read Chat Media" ON storage.objects;
 CREATE POLICY "Group Read Chat Media" ON storage.objects FOR SELECT USING (bucket_id = 'chat-media' AND auth.role() = 'authenticated');
@@ -1038,4 +1044,5 @@ DROP POLICY IF EXISTS "Private Snaps Access" ON storage.objects;
 CREATE POLICY "Private Snaps Access" ON storage.objects FOR ALL USING (bucket_id = 'snaps' AND auth.role() = 'authenticated');
 
 DROP POLICY IF EXISTS "Private Notes Access" ON storage.objects;
-CREATE POLICY "Private Notes Access" ON storage.objects FOR ALL USING (bucket_id = 'notes' AND auth.role() = 'authenticated');
+CREATE POLICY "Private Notes Access" ON storage.objects FOR ALL USING (bucket_id IN ('notes', 'study-notes', 'documents') AND auth.role() = 'authenticated');
+

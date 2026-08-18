@@ -1,6 +1,11 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { SnapMessage } from '../types';
-import { validateUploadFile } from './storage';
+import { 
+  validateUploadFile, 
+  uploadFileWithBucketRotation, 
+  getUniversalStorageUrl, 
+  deleteUniversalStorageFile 
+} from './storage';
 
 // In-memory cache for signed URLs for snaps
 const snapSignedUrlCache = new Map<string, { url: string; expiresAt: number }>();
@@ -20,8 +25,7 @@ export interface SendSnapResult {
 }
 
 /**
- * Uploads an actual image File directly to the private 'snaps' Supabase Storage bucket.
- * Generates a unique, non-colliding storage path per snap.
+ * Uploads an actual image File directly with automatic multi-bucket rotation and compression.
  */
 export async function uploadSnapImage(
   file: File,
@@ -38,44 +42,12 @@ export async function uploadSnapImage(
     return { storagePath: '', error: validation.error || 'Please select a valid image (JPEG, PNG, WEBP, HEIC).' };
   }
 
-  if (onProgress) onProgress(15);
-
-  if (!isSupabaseConfigured || !supabase) {
-    return { 
-      storagePath: '', 
-      error: 'Supabase is not configured. Please check your Supabase credentials in settings.' 
-    };
-  }
-
-  // Generate unique storage path: snaps/{sender_id}/{timestamp}_{random}_{filename}
-  const cleanSenderId = senderId.replace(/[^a-zA-Z0-9-]/g, '') || 'user';
-  const cleanFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_').toLowerCase();
-  const timestamp = Date.now();
-  const randomStr = Math.random().toString(36).substring(2, 9);
-  const filePath = `${cleanSenderId}/${timestamp}_${randomStr}_${cleanFileName}`;
-
-  if (onProgress) onProgress(35);
-
   try {
-    const { data, error } = await supabase.storage
-      .from('snaps')
-      .upload(filePath, file, {
-        cacheControl: '3600',
-        upsert: true,
-        contentType: file.type || 'image/jpeg'
-      });
-
-    if (error) {
-      console.error('Supabase snaps storage upload error:', error);
-      return { 
-        storagePath: '', 
-        error: `Snap upload failed: ${error.message}` 
-      };
+    const res = await uploadFileWithBucketRotation('snaps', file, senderId, onProgress);
+    if (!res.storagePath) {
+      return { storagePath: '', error: res.error || 'Snap upload failed.' };
     }
-
-    if (onProgress) onProgress(80);
-    const finalPath = data?.path || filePath;
-    return { storagePath: finalPath };
+    return { storagePath: res.storagePath };
   } catch (err: any) {
     console.error('Exception uploading snap image:', err);
     return { 
@@ -86,83 +58,21 @@ export async function uploadSnapImage(
 }
 
 /**
- * Resolves a private storage path from the 'snaps' bucket to an authorized signed URL for viewing.
+ * Resolves a storage path from snaps or candidate buckets to an authorized signed URL for viewing.
  */
 export async function getSnapSignedUrl(
   storagePathOrUrl?: string | null,
   expiresInSeconds: number = 3600
 ): Promise<string> {
   if (!storagePathOrUrl) return '';
-
-  // Already a full web URL or data URL
-  if (
-    storagePathOrUrl.startsWith('http://') ||
-    storagePathOrUrl.startsWith('https://') ||
-    storagePathOrUrl.startsWith('data:')
-  ) {
-    return storagePathOrUrl;
-  }
-
-  // Blob URLs are sender-local only - fallback if any
-  if (storagePathOrUrl.startsWith('blob:')) {
-    return storagePathOrUrl;
-  }
-
-  if (!isSupabaseConfigured || !supabase) {
-    return storagePathOrUrl;
-  }
-
-  // Check in-memory cache
-  const cacheKey = `snaps:${storagePathOrUrl}`;
-  const cached = snapSignedUrlCache.get(cacheKey);
-  const now = Date.now();
-  if (cached && cached.expiresAt > now + 60000) {
-    return cached.url;
-  }
-
-  try {
-    const { data, error } = await supabase.storage
-      .from('snaps')
-      .createSignedUrl(storagePathOrUrl, expiresInSeconds);
-
-    if (error || !data?.signedUrl) {
-      console.warn('Could not create signed URL for snap, trying public fallback:', error?.message);
-      const { data: pubData } = supabase.storage.from('snaps').getPublicUrl(storagePathOrUrl);
-      return pubData?.publicUrl || storagePathOrUrl;
-    }
-
-    snapSignedUrlCache.set(cacheKey, {
-      url: data.signedUrl,
-      expiresAt: now + expiresInSeconds * 1000
-    });
-
-    return data.signedUrl;
-  } catch (err) {
-    console.warn('Error creating snap signed URL:', err);
-    return storagePathOrUrl;
-  }
+  return getUniversalStorageUrl(storagePathOrUrl, 'snaps', expiresInSeconds);
 }
 
 /**
- * Removes a file from the 'snaps' bucket if needed (e.g. on cleanup or failed db insert).
+ * Removes a file from storage if needed (e.g. on cleanup or failed db insert).
  */
 export async function deleteSnapStorageFile(storagePath: string): Promise<boolean> {
-  if (!storagePath || !isSupabaseConfigured || !supabase) return false;
-  if (storagePath.startsWith('http') || storagePath.startsWith('blob:') || storagePath.startsWith('data:')) {
-    return true;
-  }
-
-  try {
-    const { error } = await supabase.storage.from('snaps').remove([storagePath]);
-    if (error) {
-      console.warn('Error deleting snap storage file:', error.message);
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.warn('Exception deleting snap storage file:', err);
-    return false;
-  }
+  return deleteUniversalStorageFile(storagePath, 'snaps');
 }
 
 /**

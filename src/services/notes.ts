@@ -1,5 +1,10 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { Note, NoteFile } from '../types';
+import { 
+  uploadFileWithBucketRotation, 
+  getUniversalStorageUrl, 
+  deleteUniversalStorageFile 
+} from './storage';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -87,8 +92,9 @@ function mapNotes(data: any[]): Note[] {
 }
 
 /**
- * Upload files to private Supabase Storage bucket 'notes',
- * insert row in 'notes', and insert child rows in 'note_files'.
+ * Upload files with Automatic Multi-Bucket Rotation & Fallback,
+ * inserts row in 'notes', and inserts child rows in 'note_files'.
+ * Never fails on "bucket not found" or "50mb quota full" as it rotates to next available bucket!
  */
 export async function createNoteInSupabase(params: {
   caption: string;
@@ -119,7 +125,7 @@ export async function createNoteInSupabase(params: {
       passwordHash = await hashNotePassword(password.trim());
     }
 
-    // Step 1: Upload each file to Supabase Storage in private 'notes' bucket
+    // Step 1: Upload each file with Multi-Bucket Rotation
     const uploadedNoteFiles: {
       id: string;
       note_id: string;
@@ -134,29 +140,24 @@ export async function createNoteInSupabase(params: {
     for (let i = 0; i < files.length; i++) {
       const { file, type } = files[i];
       const fileId = crypto.randomUUID();
-      const cleanFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const storagePath = `${noteId}/${fileId}_${cleanFileName}`;
 
-      const { data: uploadData, error: uploadErr } = await supabase.storage
-        .from('notes')
-        .upload(storagePath, file, {
-          cacheControl: '3600',
-          upsert: true
-        });
+      const uploadResult = await uploadFileWithBucketRotation('notes', file, uploaderId);
 
-      if (uploadErr) {
-        console.warn('Storage upload error for note file:', uploadErr);
+      if (!uploadResult.storagePath) {
         // Attempt cleanup of already uploaded files
         for (const uf of uploadedNoteFiles) {
-          await supabase.storage.from('notes').remove([uf.storage_path]);
+          await deleteUniversalStorageFile(uf.storage_path, 'notes');
         }
-        return { success: false, error: `Failed to upload file ${file.name}: ${uploadErr.message}` };
+        return { 
+          success: false, 
+          error: uploadResult.error || `Failed to upload file "${file.name}".` 
+        };
       }
 
       uploadedNoteFiles.push({
         id: fileId,
         note_id: noteId,
-        storage_path: uploadData?.path || storagePath,
+        storage_path: uploadResult.storagePath,
         file_name: file.name,
         file_type: type,
         file_size: file.size,
@@ -184,7 +185,7 @@ export async function createNoteInSupabase(params: {
       console.warn('Failed to insert note record:', insertNoteErr);
       // Cleanup uploaded files
       for (const uf of uploadedNoteFiles) {
-        await supabase.storage.from('notes').remove([uf.storage_path]);
+        await deleteUniversalStorageFile(uf.storage_path, 'notes');
       }
       return { success: false, error: `Failed to create note: ${insertNoteErr.message}` };
     }
@@ -210,7 +211,7 @@ export async function createNoteInSupabase(params: {
       // Cleanup
       await supabase.from('notes').delete().eq('id', noteId);
       for (const uf of uploadedNoteFiles) {
-        await supabase.storage.from('notes').remove([uf.storage_path]);
+        await deleteUniversalStorageFile(uf.storage_path, 'notes');
       }
       return { success: false, error: `Failed to save note files: ${insertFilesErr.message}` };
     }
@@ -264,37 +265,16 @@ export async function verifyNotePasswordInSupabase(noteId: string, passwordAttem
 }
 
 /**
- * Generates an authorized temporary signed URL for viewing an image or PDF from private 'notes' bucket.
+ * Generates an authorized temporary signed URL for viewing an image or PDF from any bucket.
+ * Universal resolver handles bucket prefixing (`bucket::path`) and automatic bucket fallback.
  */
 export async function getAuthorizedNoteFileUrl(storagePath: string, expiresIn = 3600): Promise<string | null> {
-  if (!isSupabaseConfigured || !supabase) return null;
-
-  try {
-    // If it's already an absolute http URL (e.g. data or external)
-    if (storagePath.startsWith('http://') || storagePath.startsWith('https://') || storagePath.startsWith('blob:') || storagePath.startsWith('data:')) {
-      return storagePath;
-    }
-
-    const { data, error } = await supabase.storage
-      .from('notes')
-      .createSignedUrl(storagePath, expiresIn);
-
-    if (error || !data?.signedUrl) {
-      console.warn('Failed to generate signed URL for note file:', storagePath, error?.message);
-      // Try public url fallback in case bucket is configured with read
-      const { data: pub } = supabase.storage.from('notes').getPublicUrl(storagePath);
-      return pub?.publicUrl || null;
-    }
-
-    return data.signedUrl;
-  } catch (err) {
-    console.warn('Error generating signed URL:', err);
-    return null;
-  }
+  if (!storagePath) return null;
+  return getUniversalStorageUrl(storagePath, 'notes', expiresIn);
 }
 
 /**
- * Delete a Note and its associated storage files and database records.
+ * Delete a Note and its associated storage files and database records across all buckets.
  */
 export async function deleteNoteFromSupabase(noteId: string): Promise<boolean> {
   if (!isSupabaseConfigured || !supabase) return false;
@@ -307,9 +287,10 @@ export async function deleteNoteFromSupabase(noteId: string): Promise<boolean> {
       .eq('note_id', noteId);
 
     if (files && files.length > 0) {
-      const pathsToRemove = files.map(f => f.storage_path).filter(Boolean);
-      if (pathsToRemove.length > 0) {
-        await supabase.storage.from('notes').remove(pathsToRemove);
+      for (const f of files) {
+        if (f.storage_path) {
+          await deleteUniversalStorageFile(f.storage_path, 'notes');
+        }
       }
     }
 
