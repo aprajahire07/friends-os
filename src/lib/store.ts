@@ -49,7 +49,14 @@ import {
   settleExpenseShareInSupabase,
   rejectExpenseShareClaimInSupabase
 } from '../services/expenses';
-import { fetchPlansFromSupabase, addPlanToSupabase, updatePlanRsvpInSupabase, votePollOptionInSupabase, addPollToPlanInSupabase } from '../services/plans';
+import { 
+  fetchPlansFromSupabase, 
+  addPlanToSupabase, 
+  updatePlanRsvpInSupabase, 
+  votePollOptionInSupabase, 
+  addPollToPlanInSupabase,
+  deletePlanFromSupabase
+} from '../services/plans';
 import { fetchMemoriesFromSupabase, addMemoryToSupabase, deleteMemoryFromSupabase } from '../services/memories';
 import { fetchNotesFromSupabase, createNoteInSupabase, deleteNoteFromSupabase, verifyNotePasswordInSupabase } from '../services/notes';
 import { fetchBorrowedItemsFromSupabase, addBorrowedItemToSupabase, markItemReturnedInSupabase } from '../services/borrowed';
@@ -1517,6 +1524,28 @@ export const appStore = {
     notifyListeners();
 
     await votePollOptionInSupabase(pollId, optionId, userId);
+  },
+
+  async deletePlan(planId: string): Promise<boolean> {
+    if (!this.currentUser) return false;
+    const plan = this.plans.find(p => p.id === planId);
+    if (!plan) return false;
+
+    // Check authorization: creator or admin
+    const isCreator = plan.creator_id === this.currentUser.id;
+    const isAdmin = isUserAdmin(this.currentUser);
+    if (!isCreator && !isAdmin) {
+      console.warn('Unauthorized to delete this plan');
+      return false;
+    }
+
+    // Optimistic removal from store
+    this.plans = this.plans.filter(p => p.id !== planId);
+    saveState('plans', this.plans);
+    notifyListeners();
+
+    const success = await deletePlanFromSupabase(planId, this.currentUser.id);
+    return success;
   },
 
   // Memories

@@ -572,7 +572,15 @@ CREATE POLICY "Expenses insert" ON public.expenses FOR INSERT WITH CHECK (auth.u
 DROP POLICY IF EXISTS "Expenses update" ON public.expenses;
 CREATE POLICY "Expenses update" ON public.expenses FOR UPDATE USING (auth.uid() = paid_by);
 DROP POLICY IF EXISTS "Expenses delete" ON public.expenses;
-CREATE POLICY "Expenses delete" ON public.expenses FOR DELETE USING (auth.uid() = paid_by);
+CREATE POLICY "Expenses delete" ON public.expenses FOR DELETE 
+  USING (
+    auth.uid() = paid_by
+    OR EXISTS (
+      SELECT 1 FROM public.profiles 
+      WHERE profiles.id = auth.uid() 
+      AND (profiles.role = 'admin' OR profiles.email = 'aprajahire07@gmail.com')
+    )
+  );
 
 DROP POLICY IF EXISTS "Expense participants select" ON public.expense_participants;
 CREATE POLICY "Expense participants select" ON public.expense_participants FOR SELECT USING (auth.role() = 'authenticated');
@@ -584,13 +592,66 @@ DROP POLICY IF EXISTS "Expense participants delete" ON public.expense_participan
 CREATE POLICY "Expense participants delete" ON public.expense_participants FOR DELETE USING (auth.role() = 'authenticated');
 
 DROP POLICY IF EXISTS "Loans select" ON public.loans;
-CREATE POLICY "Loans select" ON public.loans FOR SELECT USING (auth.uid() = lender_id OR auth.uid() = borrower_id);
+CREATE POLICY "Loans select" ON public.loans FOR SELECT USING (auth.uid() = lender_id OR auth.uid() = borrower_id OR EXISTS (SELECT 1 FROM public.profiles WHERE profiles.id = auth.uid() AND (profiles.role = 'admin' OR profiles.email = 'aprajahire07@gmail.com')));
 DROP POLICY IF EXISTS "Loans insert" ON public.loans;
-CREATE POLICY "Loans insert" ON public.loans FOR INSERT WITH CHECK (auth.uid() = lender_id OR auth.uid() = borrower_id);
+CREATE POLICY "Loans insert" ON public.loans FOR INSERT WITH CHECK (auth.uid() = lender_id OR auth.uid() = borrower_id OR EXISTS (SELECT 1 FROM public.profiles WHERE profiles.id = auth.uid() AND (profiles.role = 'admin' OR profiles.email = 'aprajahire07@gmail.com')));
 DROP POLICY IF EXISTS "Loans update" ON public.loans;
-CREATE POLICY "Loans update" ON public.loans FOR UPDATE USING (auth.uid() = lender_id OR auth.uid() = borrower_id);
+CREATE POLICY "Loans update" ON public.loans FOR UPDATE USING (auth.uid() = lender_id OR auth.uid() = borrower_id OR EXISTS (SELECT 1 FROM public.profiles WHERE profiles.id = auth.uid() AND (profiles.role = 'admin' OR profiles.email = 'aprajahire07@gmail.com')));
 DROP POLICY IF EXISTS "Loans delete" ON public.loans;
-CREATE POLICY "Loans delete" ON public.loans FOR DELETE USING (auth.uid() = lender_id OR auth.uid() = borrower_id);
+CREATE POLICY "Loans delete" ON public.loans FOR DELETE 
+  USING (
+    auth.uid() = lender_id 
+    OR auth.uid() = borrower_id
+    OR EXISTS (
+      SELECT 1 FROM public.profiles 
+      WHERE profiles.id = auth.uid() 
+      AND (profiles.role = 'admin' OR profiles.email = 'aprajahire07@gmail.com')
+    )
+  );
+
+-- RPC for Admin to safely clear completed money history (Paid loans)
+CREATE OR REPLACE FUNCTION public.admin_clear_money_history(p_target_user_id UUID)
+RETURNS INT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_caller_role TEXT;
+  v_caller_email TEXT;
+  v_deleted_count INT := 0;
+  v_loan_ids UUID[];
+BEGIN
+  -- Admin Authorization Check
+  SELECT role, email INTO v_caller_role, v_caller_email
+  FROM public.profiles
+  WHERE id = auth.uid();
+
+  IF v_caller_role <> 'admin' AND v_caller_email <> 'aprajahire07@gmail.com' THEN
+    RAISE EXCEPTION 'Unauthorized: Only administrator can clear completed transaction history.';
+  END IF;
+
+  -- Find all paid loan IDs involving target user
+  SELECT ARRAY_AGG(id) INTO v_loan_ids
+  FROM public.loans
+  WHERE status = 'paid'
+    AND (lender_id = p_target_user_id OR borrower_id = p_target_user_id);
+
+  IF v_loan_ids IS NOT NULL AND ARRAY_LENGTH(v_loan_ids, 1) > 0 THEN
+    -- Delete related loan payments first
+    DELETE FROM public.loan_payments WHERE loan_id = ANY(v_loan_ids);
+    
+    -- Delete the paid loans
+    DELETE FROM public.loans WHERE id = ANY(v_loan_ids);
+    GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+  END IF;
+
+  RETURN v_deleted_count;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.admin_clear_money_history(UUID) TO authenticated, anon, service_role;
+
 
 DROP POLICY IF EXISTS "Payment QR select" ON public.payment_qr;
 CREATE POLICY "Payment QR select" ON public.payment_qr FOR SELECT USING (auth.role() = 'authenticated');
@@ -601,19 +662,54 @@ DROP POLICY IF EXISTS "Plans select" ON public.plans;
 CREATE POLICY "Plans select" ON public.plans FOR SELECT USING (auth.role() = 'authenticated');
 DROP POLICY IF EXISTS "Plans insert" ON public.plans;
 CREATE POLICY "Plans insert" ON public.plans FOR INSERT WITH CHECK (auth.uid() = creator_id);
+DROP POLICY IF EXISTS "Plans update" ON public.plans;
+CREATE POLICY "Plans update" ON public.plans FOR UPDATE 
+  USING (
+    auth.uid() = creator_id 
+    OR EXISTS (
+      SELECT 1 FROM public.profiles 
+      WHERE profiles.id = auth.uid() 
+      AND (profiles.role = 'admin' OR profiles.email = 'aprajahire07@gmail.com')
+    )
+  );
+DROP POLICY IF EXISTS "Plans delete" ON public.plans;
+CREATE POLICY "Plans delete" ON public.plans FOR DELETE 
+  USING (
+    auth.uid() = creator_id 
+    OR EXISTS (
+      SELECT 1 FROM public.profiles 
+      WHERE profiles.id = auth.uid() 
+      AND (profiles.role = 'admin' OR profiles.email = 'aprajahire07@gmail.com')
+    )
+  );
+
 DROP POLICY IF EXISTS "Plan participants select" ON public.plan_participants;
 CREATE POLICY "Plan participants select" ON public.plan_participants FOR SELECT USING (auth.role() = 'authenticated');
 DROP POLICY IF EXISTS "Plan participants insert/update" ON public.plan_participants;
 CREATE POLICY "Plan participants insert/update" ON public.plan_participants FOR ALL USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Plan participants delete" ON public.plan_participants;
+CREATE POLICY "Plan participants delete" ON public.plan_participants FOR DELETE USING (auth.role() = 'authenticated');
 
 DROP POLICY IF EXISTS "Polls select" ON public.polls;
 CREATE POLICY "Polls select" ON public.polls FOR SELECT USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Polls insert" ON public.polls;
+CREATE POLICY "Polls insert" ON public.polls FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Polls delete" ON public.polls;
+CREATE POLICY "Polls delete" ON public.polls FOR DELETE USING (auth.role() = 'authenticated');
+
 DROP POLICY IF EXISTS "Poll options select" ON public.poll_options;
 CREATE POLICY "Poll options select" ON public.poll_options FOR SELECT USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Poll options insert" ON public.poll_options;
+CREATE POLICY "Poll options insert" ON public.poll_options FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Poll options delete" ON public.poll_options;
+CREATE POLICY "Poll options delete" ON public.poll_options FOR DELETE USING (auth.role() = 'authenticated');
+
 DROP POLICY IF EXISTS "Poll votes select" ON public.poll_votes;
 CREATE POLICY "Poll votes select" ON public.poll_votes FOR SELECT USING (auth.role() = 'authenticated');
 DROP POLICY IF EXISTS "Poll votes insert" ON public.poll_votes;
 CREATE POLICY "Poll votes insert" ON public.poll_votes FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Poll votes delete" ON public.poll_votes;
+CREATE POLICY "Poll votes delete" ON public.poll_votes FOR DELETE USING (auth.uid() = user_id OR auth.role() = 'authenticated');
 
 DROP POLICY IF EXISTS "Memories select" ON public.memories;
 CREATE POLICY "Memories select" ON public.memories FOR SELECT USING (auth.role() = 'authenticated');

@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { CalendarDays, MapPin, Plus, Heart, Vote, Check, Users, HelpCircle, X } from 'lucide-react';
+import { CalendarDays, MapPin, Plus, Heart, Vote, Check, Users, HelpCircle, X, Trash2, AlertTriangle } from 'lucide-react';
 import { appStore, useAppStore } from '../../lib/store';
 import { CreatePlanModal } from './CreatePlanModal';
 import { useToast } from '../ui/Toast';
+import { isAuthorizedAdmin } from '../../services/admin';
 
 export const PlansList: React.FC = () => {
   const { showToast } = useToast();
@@ -12,6 +13,8 @@ export const PlansList: React.FC = () => {
   const [activePollPlanId, setActivePollPlanId] = useState<string | null>(null);
   const [pollQuestion, setPollQuestion] = useState('');
   const [pollOptions, setPollOptions] = useState<string[]>(['', '']);
+  const [planToDelete, setPlanToDelete] = useState<{ id: string; title: string } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const plans = store.plans;
 
@@ -38,6 +41,24 @@ export const PlansList: React.FC = () => {
     setActivePollPlanId(null);
     setPollQuestion('');
     setPollOptions(['', '']);
+  };
+
+  const handleDeletePlan = async () => {
+    if (!planToDelete) return;
+    setIsDeleting(true);
+    try {
+      const success = await appStore.deletePlan(planToDelete.id);
+      if (success) {
+        showToast('Plan Deleted 🗑️', `"${planToDelete.title}" has been deleted.`, 'info');
+      } else {
+        showToast('Plan Removed', `Plan removed from list.`, 'info');
+      }
+    } catch (err: any) {
+      showToast('Error', err?.message || 'Failed to delete plan.', 'error');
+    } finally {
+      setIsDeleting(false);
+      setPlanToDelete(null);
+    }
   };
 
   return (
@@ -82,11 +103,18 @@ export const PlansList: React.FC = () => {
             const goingFriends = plan.participants.filter(p => p.status === 'joined');
             const maybeFriends = plan.participants.filter(p => p.status === 'maybe');
             const creator = plan.creator_profile || store.profiles.find(p => p.id === plan.creator_id);
+            const canDelete = Boolean(
+              user && (
+                user.id === plan.creator_id || 
+                isAuthorizedAdmin(user) ||
+                (creator?.email && user.email && creator.email.toLowerCase() === user.email.toLowerCase())
+              )
+            );
 
             return (
               <div
                 key={plan.id}
-                className="bg-slate-900 border border-slate-800 rounded-3xl p-5 text-slate-100 shadow-xl space-y-4"
+                className="bg-slate-900 border border-slate-800 rounded-3xl p-5 text-slate-100 shadow-xl space-y-4 transition-all"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div>
@@ -104,12 +132,25 @@ export const PlansList: React.FC = () => {
                     </p>
                   </div>
 
-                  {creator && (
-                    <div className="text-right shrink-0">
-                      <span className="text-[10px] text-slate-500 block">Created by</span>
-                      <span className="text-xs font-semibold text-indigo-300">{creator.full_name}</span>
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2 shrink-0">
+                    {creator && (
+                      <div className="text-right">
+                        <span className="text-[10px] text-slate-500 block">Created by</span>
+                        <span className="text-xs font-semibold text-indigo-300">{creator.full_name}</span>
+                      </div>
+                    )}
+
+                    {canDelete && (
+                      <button
+                        type="button"
+                        onClick={() => setPlanToDelete({ id: plan.id, title: plan.title })}
+                        title="Delete Plan"
+                        className="p-1.5 rounded-lg bg-slate-950 border border-slate-800 hover:border-rose-800/80 hover:bg-rose-950/40 text-slate-400 hover:text-rose-400 transition-all active:scale-95"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {plan.description && (
@@ -317,6 +358,49 @@ export const PlansList: React.FC = () => {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {planToDelete && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-2xl bg-rose-950/80 border border-rose-800 text-rose-400">
+                <AlertTriangle className="w-5 h-5 stroke-[2.5]" />
+              </div>
+              <div>
+                <h3 className="text-sm font-black text-white">Delete Plan?</h3>
+                <p className="text-xs text-slate-400 font-semibold truncate max-w-[200px]">
+                  "{planToDelete.title}"
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-300 bg-slate-950 p-3 rounded-xl border border-slate-800">
+              Are you sure you want to cancel and delete this plan? This will remove all associated RSVPs and polls.
+            </p>
+
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setPlanToDelete(null)}
+                disabled={isDeleting}
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeletePlan}
+                disabled={isDeleting}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 active:scale-98 text-white font-bold text-xs shadow-lg shadow-rose-600/30 transition-all flex items-center justify-center gap-1.5"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>{isDeleting ? 'Deleting...' : 'Delete Plan'}</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

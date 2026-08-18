@@ -247,4 +247,38 @@ export async function addPollToPlanInSupabase(planId: string, question: string, 
   }
 }
 
+export async function deletePlanFromSupabase(planId: string, userId?: string): Promise<boolean> {
+  if (!isSupabaseConfigured || !supabase || !planId) return true;
+
+  try {
+    // Delete polls, options, and participants cascades automatically in DB,
+    // but explicit cleanup ensures safety if foreign keys are loose
+    try {
+      await supabase.from('plan_participants').delete().eq('plan_id', planId);
+    } catch {
+      // ignore
+    }
+
+    try {
+      await supabase.from('polls').delete().eq('plan_id', planId);
+    } catch {
+      // ignore
+    }
+
+    let query = supabase.from('plans').delete().eq('id', planId);
+    const { error } = await query;
+
+    if (error) {
+      console.warn('Error deleting plan from Supabase:', error.message);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.error('Failed to delete plan:', err);
+    return false;
+  }
+}
+
+
 

@@ -212,14 +212,18 @@ export async function adminClearCompletedMoneyHistory(
 
   if (isSupabaseConfigured && supabase) {
     try {
-      // 1. Call RPC if defined
+      // 1. Call RPC first (bypasses client RLS restrictions safely via SECURITY DEFINER)
       const { data: rpcData, error: rpcErr } = await supabase.rpc('admin_clear_money_history', {
         p_target_user_id: targetUser.id
       });
 
-      if (!rpcErr && rpcData) {
-        clearedCount = typeof rpcData === 'number' ? rpcData : 1;
+      if (!rpcErr && typeof rpcData === 'number') {
+        clearedCount = rpcData;
       } else {
+        if (rpcErr) {
+          console.warn('RPC admin_clear_money_history notice, using direct query fallback:', rpcErr.message);
+        }
+        
         // Fallback: Clear completed (paid) loans directly
         const { data: paidLoans, error: fetchErr } = await supabase
           .from('loans')
@@ -230,7 +234,18 @@ export async function adminClearCompletedMoneyHistory(
         if (!fetchErr && paidLoans && paidLoans.length > 0) {
           clearedCount = paidLoans.length;
           const idsToDelete = paidLoans.map((l: any) => l.id);
-          await supabase.from('loans').delete().in('id', idsToDelete);
+          
+          // Delete loan payments first to prevent foreign key errors
+          try {
+            await supabase.from('loan_payments').delete().in('loan_id', idsToDelete);
+          } catch (e) {
+            console.warn('Loan payments delete fallback notice:', e);
+          }
+
+          const { error: delErr } = await supabase.from('loans').delete().in('id', idsToDelete);
+          if (delErr) {
+            console.error('Failed direct delete on loans table:', delErr.message);
+          }
         }
       }
     } catch (err) {
