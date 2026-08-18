@@ -92,9 +92,17 @@ function loadInitialState<T>(key: string, fallback: T): T {
     const parsed = JSON.parse(data);
     if (key === 'currentUser' && parsed && typeof parsed === 'object') {
       parsed.college = sanitizeCollege(parsed.college);
+      if (parsed.email && parsed.email.toLowerCase().trim() === 'shreyashjivtode2@gmail.com') {
+        parsed.full_name = 'Shreyash jivtode';
+      }
     } else if (key === 'profiles' && Array.isArray(parsed)) {
       parsed.forEach((p: any) => {
-        if (p) p.college = sanitizeCollege(p.college);
+        if (p) {
+          p.college = sanitizeCollege(p.college);
+          if (p.email && p.email.toLowerCase().trim() === 'shreyashjivtode2@gmail.com') {
+            p.full_name = 'Shreyash jivtode';
+          }
+        }
       });
     }
     return parsed;
@@ -2137,6 +2145,32 @@ export const appStore = {
       notifyListeners();
     }
     return success;
+  },
+
+  // Admin Update User Profile
+  async adminUpdateUserProfile(targetUserId: string, updates: Partial<Profile>): Promise<boolean> {
+    if (!isUserAdmin(this.currentUser)) {
+      throw new Error('Unauthorized: Admin access required.');
+    }
+    const targetUser = this.profiles.find(p => p.id === targetUserId);
+    if (!targetUser) {
+      throw new Error('Target user not found.');
+    }
+
+    // Update in Supabase
+    await updateProfileInSupabase(targetUserId, updates);
+
+    // Update locally
+    this.profiles = this.profiles.map(p => 
+      p.id === targetUserId ? { ...p, ...updates } : p
+    );
+    if (this.currentUser && this.currentUser.id === targetUserId) {
+      this.currentUser = { ...this.currentUser, ...updates };
+      saveState('currentUser', this.currentUser);
+    }
+    saveState('profiles', this.profiles);
+    notifyListeners();
+    return true;
   },
 
   // Admin Clear Completed Money History

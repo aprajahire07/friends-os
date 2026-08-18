@@ -21,11 +21,23 @@ export function mapProfileFromSupabase(row: any, bannedUserIds?: string[]): Prof
     isUserIdBannedLocally(row.id)
   );
 
+  const emailLower = (row.email || '').toLowerCase().trim();
+  let fullName = row.full_name || 'User';
+  let username = row.username || 'user';
+
+  // Override / Fix requested for shreyashjivtode2@gmail.com
+  if (emailLower === 'shreyashjivtode2@gmail.com') {
+    fullName = 'Shreyash jivtode';
+    if (!row.username || row.username.toLowerCase() === 'apraj' || row.username.toLowerCase() === 'user') {
+      username = 'shreyash';
+    }
+  }
+
   return {
     id: row.id,
     email: row.email || '',
-    full_name: row.full_name || 'User',
-    username: row.username || 'user',
+    full_name: fullName,
+    username: username,
     avatar_url: row.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=250&q=80',
     birthday: row.birthday || '2004-09-15',
     college: sanitizeCollege(row.college),
@@ -60,6 +72,20 @@ export async function fetchProfilesFromSupabase(): Promise<Profile[] | null> {
     }
 
     if (!profilesRes.data) return [];
+
+    // Check if any database record for shreyashjivtode2@gmail.com needs updating in Supabase
+    for (const row of profilesRes.data) {
+      if (row.email && row.email.toLowerCase().trim() === 'shreyashjivtode2@gmail.com' && row.full_name !== 'Shreyash jivtode') {
+        supabase.from('profiles').update({
+          full_name: 'Shreyash jivtode',
+          username: (!row.username || row.username.toLowerCase() === 'apraj') ? 'shreyash' : row.username
+        }).eq('id', row.id).then(({ error }) => {
+          if (error) console.warn('Sync Shreyash profile name in Supabase:', error.message);
+          else console.log('✓ Successfully synced Shreyash jivtode name in Supabase database.');
+        });
+      }
+    }
+
     return profilesRes.data.map(row => mapProfileFromSupabase(row, bannedUserIds));
   } catch (err) {
     console.warn('Error fetching profiles from Supabase:', err);

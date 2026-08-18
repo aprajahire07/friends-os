@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4f46e5" />
+      <stop offset="50%" stop-color="#7c3aed" />
+      <stop offset="100%" stop-color="#ec4899" />
+    </linearGradient>
+    <linearGradient id="glowGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.35" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.35" />
+    </filter>
+  </defs>
+
+  <!-- Base Rounded Container -->
+  <rect width="512" height="512" rx="112" fill="#090d16" />
+  <rect x="16" y="16" width="480" height="480" rx="96" fill="url(#bgGrad)" />
+  <rect x="16" y="16" width="480" height="240" rx="96" fill="url(#glowGrad)" />
+
+  <!-- Center Emblem: Modern Stylized 'F' + Connected Friend Nodes -->
+  <g filter="url(#shadow)" fill="#ffffff">
+    <!-- Top Bar with rounded caps -->
+    <rect x="136" y="128" width="240" height="44" rx="22" />
+    
+    <!-- Vertical Stem -->
+    <rect x="136" y="128" width="48" height="256" rx="24" />
+    
+    <!-- Middle Bar -->
+    <rect x="136" y="234" width="180" height="40" rx="20" />
+    
+    <!-- Connected Community Nodes / Sparkles -->
+    <!-- Top-right friend node -->
+    <circle cx="376" cy="150" r="28" fill="#fbcfe8" />
+    <circle cx="376" cy="150" r="14" fill="#ec4899" />
+    
+    <!-- Mid-right friend node -->
+    <circle cx="316" cy="254" r="24" fill="#ddd6fe" />
+    <circle cx="316" cy="254" r="12" fill="#7c3aed" />
+
+    <!-- Bottom spark node -->
+    <circle cx="160" cy="384" r="24" fill="#c7d2fe" />
+    <circle cx="160" cy="384" r="12" fill="#4f46e5" />
+    
+    <!-- Dynamic Orbit Sparkle -->
+    <path d="M 370 330 Q 395 330 395 305 Q 395 330 420 330 Q 395 330 395 355 Q 395 330 370 330 Z" fill="#ffffff" />
+  </g>
+</svg>

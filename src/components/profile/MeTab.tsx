@@ -8,14 +8,16 @@ import {
   Images, 
   Backpack, 
   CheckCircle2, 
-  Sparkles,
-  QrCode,
-  MapPin,
-  Camera,
-  X,
-  ShieldCheck,
-  Users,
-  FileText
+  Sparkles, 
+  QrCode, 
+  MapPin, 
+  Camera, 
+  X, 
+  ShieldCheck, 
+  Users, 
+  FileText,
+  Smartphone,
+  Download
 } from 'lucide-react';
 import { appStore, useAppStore } from '../../lib/store';
 import { Profile } from '../../types';
@@ -25,19 +27,23 @@ import { FileUpload } from '../ui/FileUpload';
 import { getSyncMediaUrl } from '../../services/storage';
 import { isUserAdmin } from '../../services/appSettings';
 import { Avatar } from '../ui/Avatar';
+import { usePWA } from '../../hooks/usePWA';
 
 interface MeTabProps {
   onSelectTab: (tab: string) => void;
   onOpenPaymentQR: (friend: Profile) => void;
   onOpenOnboarding: () => void;
+  onOpenInstallPWA?: () => void;
 }
 
 export const MeTab: React.FC<MeTabProps> = ({
   onSelectTab,
   onOpenPaymentQR,
   onOpenOnboarding,
+  onOpenInstallPWA,
 }) => {
   const { showToast } = useToast();
+  const { isStandalone } = usePWA();
   useAppStore();
   const user = appStore.currentUser;
   const [showAvatarModal, setShowAvatarModal] = useState(false);
@@ -125,7 +131,7 @@ export const MeTab: React.FC<MeTabProps> = ({
           )}
         </div>
 
-        <div className="mt-4 pt-4 border-t border-slate-800/80 flex items-center justify-between">
+        <div className="mt-4 pt-4 border-t border-slate-800/80 flex items-center justify-between gap-2 flex-wrap">
           <button
             onClick={() => onOpenPaymentQR(user)}
             className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 hover:text-white text-xs font-bold flex items-center gap-1.5"
@@ -134,14 +140,53 @@ export const MeTab: React.FC<MeTabProps> = ({
             <span>My Payment QR</span>
           </button>
 
-          <button
-            onClick={onOpenOnboarding}
-            className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow transition-all"
-          >
-            Edit Profile Setup
-          </button>
+          <div className="flex items-center gap-2">
+            {!isStandalone && onOpenInstallPWA && (
+              <button
+                onClick={onOpenInstallPWA}
+                className="px-3 py-1.5 rounded-xl bg-indigo-950/80 border border-indigo-700/70 hover:bg-indigo-900 text-indigo-300 hover:text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all"
+              >
+                <Smartphone className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Install PWA</span>
+              </button>
+            )}
+
+            <button
+              onClick={onOpenOnboarding}
+              className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow transition-all"
+            >
+              Edit Profile Setup
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* PWA App Installation Card if not installed yet */}
+      {!isStandalone && onOpenInstallPWA && (
+        <div className="bg-gradient-to-br from-indigo-950/40 via-slate-900 to-slate-900 border border-indigo-800/50 rounded-3xl p-5 text-slate-100 shadow-xl flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 flex-shrink-0">
+              <Download className="w-6 h-6" />
+            </div>
+            <div>
+              <h4 className="text-sm font-extrabold text-white flex items-center gap-2">
+                <span>Install Friend OS App</span>
+                <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-500/30">PWA</span>
+              </h4>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Add to your Android or iPhone home screen for fast fullscreen access.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenInstallPWA}
+            className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black shadow-lg shadow-indigo-600/30 flex-shrink-0 transition-all active:scale-95"
+          >
+            Install
+          </button>
+        </div>
+      )}
 
       {/* BIRTHDAYS THIS MONTH SECTION */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 text-slate-100 shadow-xl space-y-3">

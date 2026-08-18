@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGradMask" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4f46e5" />
+      <stop offset="50%" stop-color="#7c3aed" />
+      <stop offset="100%" stop-color="#ec4899" />
+    </linearGradient>
+    <linearGradient id="glowGradMask" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.3" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0" />
+    </linearGradient>
+    <filter id="shadowMask" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000000" flood-opacity="0.35" />
+    </filter>
+  </defs>
+
+  <!-- Full Bleed Background for Maskable Icon -->
+  <rect width="512" height="512" fill="url(#bgGradMask)" />
+  <rect width="512" height="256" fill="url(#glowGradMask)" />
+
+  <!-- Center Safe-Zone Emblem (within inner 80% circle) -->
+  <g transform="translate(38, 38) scale(0.85)" filter="url(#shadowMask)" fill="#ffffff">
+    <!-- Top Bar -->
+    <rect x="136" y="128" width="240" height="44" rx="22" />
+    
+    <!-- Vertical Stem -->
+    <rect x="136" y="128" width="48" height="256" rx="24" />
+    
+    <!-- Middle Bar -->
+    <rect x="136" y="234" width="180" height="40" rx="20" />
+    
+    <!-- Connected Community Nodes -->
+    <circle cx="376" cy="150" r="28" fill="#fbcfe8" />
+    <circle cx="376" cy="150" r="14" fill="#ec4899" />
+    
+    <circle cx="316" cy="254" r="24" fill="#ddd6fe" />
+    <circle cx="316" cy="254" r="12" fill="#7c3aed" />
+
+    <circle cx="160" cy="384" r="24" fill="#c7d2fe" />
+    <circle cx="160" cy="384" r="12" fill="#4f46e5" />
+    
+    <!-- Sparkle -->
+    <path d="M 370 330 Q 395 330 395 305 Q 395 330 420 330 Q 395 330 395 355 Q 395 330 370 330 Z" fill="#ffffff" />
+  </g>
+</svg>

@@ -27,6 +27,8 @@ import { BannedAccountView } from './components/auth/BannedAccountView';
 import { AdminDashboard } from './components/admin/AdminDashboard';
 import { ToastProvider, useToast } from './components/ui/Toast';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
+import { PWAStatusBar } from './components/pwa/PWAStatusBar';
+import { PWAInstallModal } from './components/pwa/PWAInstallModal';
 import { Profile } from './types';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { appStore, useAppStore } from './lib/store';
@@ -129,6 +131,7 @@ export function AppContent() {
   const [showAddBorrowedModal, setShowAddBorrowedModal] = useState(false);
   const [showAddNoteModal, setShowAddNoteModal] = useState(false);
   const [showOnboardingModal, setShowOnboardingModal] = useState(false);
+  const [showPWAInstallModal, setShowPWAInstallModal] = useState(false);
 
   // Preselected friend for 1-on-1 actions
   const [preselectedFriend, setPreselectedFriend] = useState<Profile | null>(null);
@@ -201,10 +204,14 @@ export function AppContent() {
   // 5. Authenticated Application
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
+      {/* PWA Offline / Update & Install Notification Bar */}
+      <PWAStatusBar onOpenInstallModal={() => setShowPWAInstallModal(true)} />
+
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         onOpenOnboarding={() => setShowOnboardingModal(true)}
+        onOpenInstallPWA={() => setShowPWAInstallModal(true)}
       />
 
       <div className="flex-1 flex max-w-7xl w-full mx-auto">
@@ -212,6 +219,7 @@ export function AppContent() {
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           onOpenCreateSheet={() => setShowCreateSheet(true)}
+          onOpenInstallPWA={() => setShowPWAInstallModal(true)}
         />
 
         <main className={`flex-1 overflow-x-hidden ${
@@ -272,6 +280,7 @@ export function AppContent() {
                 onSelectTab={setActiveTab}
                 onOpenPaymentQR={handleOpenPaymentQR}
                 onOpenOnboarding={() => setShowOnboardingModal(true)}
+                onOpenInstallPWA={() => setShowPWAInstallModal(true)}
               />
             )}
 
@@ -355,6 +364,11 @@ export function AppContent() {
       <OnboardingModal
         isOpen={showOnboardingModal}
         onClose={() => setShowOnboardingModal(false)}
+      />
+
+      <PWAInstallModal
+        isOpen={showPWAInstallModal}
+        onClose={() => setShowPWAInstallModal(false)}
       />
     </div>
   );
