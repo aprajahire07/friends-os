@@ -6,20 +6,16 @@ import {
   X, 
   MessageSquare, 
   Users, 
-  User, 
   Trash2, 
-  Check, 
-  CheckCheck, 
   Camera, 
   Image as ImageIcon, 
   FileText, 
   Loader2, 
   AtSign, 
-  ChevronLeft, 
-  ShieldAlert, 
-  Sparkles,
+  ArrowLeft, 
   Lock,
-  Smile
+  Smile,
+  CheckCircle2
 } from 'lucide-react';
 import { appStore, useAppStore } from '../../lib/store';
 import { ChatMessage, Profile } from '../../types';
@@ -38,7 +34,7 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
   const store = useAppStore();
   const currentUser = store.currentUser;
 
-  // Active chat mode: 'group' or 'private'
+  // Active chat tab: 'group' or 'private'
   const [activeMode, setActiveMode] = useState<'group' | 'private'>('group');
   
   // For Private 1-on-1 Chat
@@ -51,8 +47,8 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [attachedFilePreview, setAttachedFilePreview] = useState<string | null>(null);
-  const [attachedFileType, setAttachedFileType] = useState<'image' | 'video' | 'document' | null>(null);
-  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [, setAttachedFileType] = useState<'image' | 'video' | 'document' | null>(null);
+  const [, setUploadProgress] = useState<number>(0);
   const [isUploading, setIsUploading] = useState(false);
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [showMentions, setShowMentions] = useState(false);
@@ -104,7 +100,7 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
   const groupUnreadCount = store.getGroupUnreadCount();
   const totalDmUnreadCount = useMemo(() => {
     return otherProfiles.reduce((acc, p) => acc + store.getDirectUnreadCount(p.id), 0);
-  }, [otherProfiles, store.messages, store.messageReads]);
+  }, [otherProfiles, store.messages, store.messageReads, store.clearedChats]);
 
   // Mark group read when group chat is open
   useEffect(() => {
@@ -198,7 +194,7 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
     setShowClearConfirmModal(false);
     if (activeMode === 'group') {
       await appStore.clearGroupChat();
-      showToast('Group Chat Cleared', 'All group chat messages have been removed.', 'success');
+      showToast('Group Chat Cleared', 'All group chat messages have been removed from your screen.', 'success');
     } else if (activeMode === 'private' && selectedFriend) {
       await appStore.clearPrivateChat(selectedFriend.id);
       showToast('Private Chat Cleared', `Chat with ${selectedFriend.full_name} has been cleared.`, 'success');
@@ -238,7 +234,7 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
   }, [otherProfiles, searchFriendQuery]);
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)] md:h-[calc(100vh-5rem)] bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl relative">
+    <div className="flex flex-col h-[calc(100dvh-5.2rem)] md:h-[calc(100vh-6rem)] w-full bg-slate-900 border border-slate-800/90 rounded-2xl md:rounded-3xl overflow-hidden shadow-2xl relative select-none">
       {/* Hidden File Inputs */}
       <input
         ref={photoInputRef}
@@ -263,11 +259,9 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
         onChange={e => e.target.files?.[0] && handleSelectFile(e.target.files[0])}
       />
 
-      {/* Main Top Header: Mode Switcher & Actions */}
-      <div className="bg-slate-950 border-b border-slate-800 px-3 py-2.5 sm:px-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shrink-0">
-        
-        {/* Mode Switcher Buttons */}
-        <div className="flex items-center gap-2 bg-slate-900/90 p-1 rounded-2xl border border-slate-800/80 shrink-0">
+      {/* TOP STATIC NAVIGATION TAB BAR */}
+      <div className="bg-slate-950 border-b border-slate-800/80 px-3 py-2.5 shrink-0">
+        <div className="grid grid-cols-2 gap-2 max-w-md mx-auto bg-slate-900/90 p-1 rounded-xl border border-slate-800">
           <button
             type="button"
             onClick={() => {
@@ -275,16 +269,16 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
               setSearchQuery('');
               setReplyingTo(null);
             }}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+            className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold transition-all ${
               activeMode === 'group'
-                ? 'bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 text-white shadow-lg shadow-indigo-500/25 ring-1 ring-indigo-400/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                ? 'bg-indigo-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
             }`}
           >
-            <Users className="w-3.5 h-3.5" />
+            <Users className="w-4 h-4" />
             <span>Group Chat</span>
             {groupUnreadCount > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-indigo-500 text-white animate-pulse">
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-indigo-400 text-slate-950">
                 {groupUnreadCount > 99 ? '99+' : groupUnreadCount}
               </span>
             )}
@@ -297,94 +291,118 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
               setSearchQuery('');
               setReplyingTo(null);
             }}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+            className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold transition-all ${
               activeMode === 'private'
-                ? 'bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 text-white shadow-lg shadow-indigo-500/25 ring-1 ring-indigo-400/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                ? 'bg-indigo-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
             }`}
           >
-            <Lock className="w-3.5 h-3.5 text-cyan-400" />
+            <Lock className="w-4 h-4 text-cyan-300" />
             <span>Private Chat</span>
             {totalDmUnreadCount > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-cyan-500 text-white animate-pulse">
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-cyan-400 text-slate-950">
                 {totalDmUnreadCount > 99 ? '99+' : totalDmUnreadCount}
               </span>
             )}
           </button>
         </div>
+      </div>
 
-        {/* Action Controls: Live indicator, Search & Clear Chat */}
-        <div className="flex items-center gap-2 justify-between sm:justify-end w-full sm:w-auto">
-          {/* Live sync pulse */}
-          <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950/60 border border-emerald-800/50 text-[10px] font-bold text-emerald-400">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span>Live Chat</span>
-          </div>
-
-          {/* Clear Chat Button */}
-          {(activeMode === 'group' || (activeMode === 'private' && selectedFriend)) && (
-            <button
-              type="button"
-              onClick={() => setShowClearConfirmModal(true)}
-              className="px-2.5 py-1.5 bg-slate-900 hover:bg-rose-950/60 border border-slate-800 hover:border-rose-800 text-slate-400 hover:text-rose-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0"
-              title="Clear Chat History"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Clear Chat</span>
-            </button>
-          )}
-
-          {/* Search Message Box */}
-          {(activeMode === 'group' || (activeMode === 'private' && selectedFriend)) && (
-            <div className="relative shrink-0 w-36 sm:w-44">
-              <input
-                type="text"
-                placeholder="Search..."
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                className="w-full px-2.5 py-1.5 pl-7 pr-6 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 transition-all"
-              />
-              <Search className="w-3 h-3 text-slate-500 absolute left-2.5 top-2.5" />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-2 top-2 p-0.5 text-slate-400 hover:text-white"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              )}
+      {/* SUB-HEADER / ACTIONS BAR */}
+      <div className="bg-slate-950/70 border-b border-slate-800/60 px-3 py-2 flex items-center justify-between gap-2 shrink-0">
+        {/* Left Side: Mode or Friend Information */}
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          {activeMode === 'group' ? (
+            <div className="flex items-center gap-2 truncate">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shrink-0" />
+              <span className="font-bold text-xs text-slate-200 truncate">College Crew</span>
+              <span className="text-[11px] text-slate-400 shrink-0">({store.profiles.length} friends)</span>
             </div>
+          ) : selectedFriend ? (
+            <div className="flex items-center gap-2 min-w-0">
+              <button
+                type="button"
+                onClick={() => setSelectedFriendId(null)}
+                className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 shrink-0 flex items-center gap-1 text-xs px-2"
+                title="Back to friend list"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Friends</span>
+              </button>
+              <div 
+                className="flex items-center gap-2 cursor-pointer truncate"
+                onClick={() => onOpenProfile && onOpenProfile(selectedFriend)}
+              >
+                <Avatar profile={selectedFriend} src={selectedFriend.avatar_url} name={selectedFriend.full_name} size="sm" />
+                <div className="truncate">
+                  <div className="font-bold text-xs text-white truncate">{selectedFriend.full_name}</div>
+                  <div className="text-[10px] text-slate-400 truncate">@{selectedFriend.username}</div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-xs font-semibold text-slate-400">
+              Select a friend to start private 1-on-1 chat
+            </div>
+          )}
+        </div>
+
+        {/* Right Side: Search & Clear Chat */}
+        <div className="flex items-center gap-2 shrink-0">
+          {(activeMode === 'group' || (activeMode === 'private' && selectedFriend)) && (
+            <>
+              {/* Search Toggle / Box */}
+              <div className="relative w-28 sm:w-40">
+                <input
+                  type="text"
+                  placeholder="Search..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  className="w-full px-2 py-1 pl-6 pr-5 bg-slate-900 border border-slate-800 rounded-lg text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500"
+                />
+                <Search className="w-3 h-3 text-slate-500 absolute left-2 top-2" />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-1.5 top-1.5 text-slate-400 hover:text-white"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+
+              {/* Clear Chat Button */}
+              <button
+                type="button"
+                onClick={() => setShowClearConfirmModal(true)}
+                className="p-1.5 sm:px-2.5 sm:py-1 bg-slate-900 hover:bg-rose-950/60 border border-slate-800 hover:border-rose-800 text-slate-400 hover:text-rose-300 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                title="Clear chat history"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                <span className="hidden sm:inline">Clear Chat</span>
+              </button>
+            </>
           )}
         </div>
       </div>
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex overflow-hidden">
+      {/* MAIN BODY VIEW */}
+      <div className="flex-1 flex overflow-hidden relative">
         
-        {/* GROUP CHAT MODE */}
+        {/* VIEW 1: GROUP CHAT */}
         {activeMode === 'group' && (
-          <div className="flex-1 flex flex-col h-full bg-slate-950/40 overflow-hidden">
-            {/* Group Info Sub-Header */}
-            <div className="px-4 py-2 bg-slate-900/60 border-b border-slate-800/60 flex items-center justify-between text-xs text-slate-400">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-indigo-500" />
-                <span className="font-bold text-slate-200">College Crew Group</span>
-                <span className="text-[11px] text-slate-500">• {store.profiles.length} friends</span>
-              </div>
-              <span className="text-[10px] text-slate-500 font-mono">Real-time synced</span>
-            </div>
-
-            {/* Messages Scroll Area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+          <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-950/30">
+            {/* Stable Vertical Message Scroll Area */}
+            <div className="flex-1 overflow-y-auto overscroll-contain p-3 sm:p-4 space-y-2" style={{ touchAction: 'pan-y' }}>
               {groupMessages.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-500">
-                  <div className="w-14 h-14 rounded-2xl bg-indigo-950/50 border border-indigo-800/40 flex items-center justify-center text-indigo-400 mb-3 shadow-inner">
-                    <Users className="w-7 h-7" />
+                <div className="h-full min-h-[220px] flex flex-col items-center justify-center text-center p-6 text-slate-500">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-950/40 border border-indigo-800/40 flex items-center justify-center text-indigo-400 mb-2">
+                    <Users className="w-6 h-6" />
                   </div>
-                  <p className="text-sm font-bold text-slate-300">Welcome to Group Chat!</p>
-                  <p className="text-xs text-slate-500 mt-1 max-w-xs">
-                    Start a conversation with your entire crew. Everyone in the group can see and reply here.
+                  <p className="text-sm font-bold text-slate-200">Group Chat</p>
+                  <p className="text-xs text-slate-400 mt-1 max-w-xs">
+                    Send a message to start chatting with everyone in your group.
                   </p>
                 </div>
               ) : (
@@ -403,20 +421,19 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
           </div>
         )}
 
-        {/* PRIVATE CHAT MODE */}
+        {/* VIEW 2: PRIVATE CHAT */}
         {activeMode === 'private' && (
           <div className="flex-1 flex h-full overflow-hidden">
-            
-            {/* Friends DM List Sidebar (Always visible on desktop, visible on mobile if no friend selected) */}
-            <div className={`w-full md:w-80 md:border-r border-slate-800 flex flex-col bg-slate-950/80 ${
+            {/* Friends Selection List (Full on mobile when no friend chosen, sidebar on desktop) */}
+            <div className={`w-full md:w-80 md:border-r border-slate-800 flex flex-col bg-slate-950/90 ${
               selectedFriendId ? 'hidden md:flex' : 'flex'
             }`}>
-              {/* Friends Search Bar */}
-              <div className="p-3 border-b border-slate-800">
+              {/* Friends Search Input */}
+              <div className="p-2.5 border-b border-slate-800 bg-slate-950">
                 <div className="relative">
                   <input
                     type="text"
-                    placeholder="Search friend to chat..."
+                    placeholder="Search friends..."
                     value={searchFriendQuery}
                     onChange={e => setSearchFriendQuery(e.target.value)}
                     className="w-full px-3 py-2 pl-8 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500"
@@ -433,11 +450,11 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
                 </div>
               </div>
 
-              {/* Friends List Items */}
-              <div className="flex-1 overflow-y-auto divide-y divide-slate-900/60 p-2 space-y-1">
+              {/* Friends List Scroll Area */}
+              <div className="flex-1 overflow-y-auto overscroll-contain p-2 space-y-1" style={{ touchAction: 'pan-y' }}>
                 {filteredFriends.length === 0 ? (
-                  <div className="p-6 text-center text-slate-500 text-xs">
-                    No friends found matching "{searchFriendQuery}".
+                  <div className="p-8 text-center text-slate-500 text-xs">
+                    No friends found.
                   </div>
                 ) : (
                   filteredFriends.map(friend => {
@@ -449,57 +466,39 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
                       <button
                         key={friend.id}
                         type="button"
-                        onClick={() => {
-                          setSelectedFriendId(friend.id);
-                          setSearchQuery('');
-                          setReplyingTo(null);
-                        }}
-                        className={`w-full p-2.5 rounded-2xl flex items-center gap-3 transition-all text-left ${
+                        onClick={() => setSelectedFriendId(friend.id)}
+                        className={`w-full p-2.5 rounded-xl flex items-center gap-3 transition-all text-left ${
                           isSelected
-                            ? 'bg-indigo-950/70 border border-indigo-500/50 shadow-md ring-1 ring-indigo-500/30'
-                            : 'hover:bg-slate-900/80 border border-transparent'
+                            ? 'bg-indigo-950/70 border border-indigo-700/60'
+                            : 'hover:bg-slate-900 border border-transparent'
                         }`}
                       >
-                        {/* Avatar */}
                         <div className="relative shrink-0">
                           <Avatar
                             profile={friend}
                             src={friend.avatar_url}
                             name={friend.full_name}
-                            username={friend.username}
                             size="md"
                           />
-                          <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-slate-950" />
+                          <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-slate-950" />
                         </div>
 
-                        {/* Name & Last Message */}
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-1">
-                            <p className="text-xs font-bold text-slate-200 truncate">
-                              {friend.full_name}
-                            </p>
+                          <div className="flex items-center justify-between gap-1 mb-0.5">
+                            <span className="font-bold text-xs text-slate-200 truncate">{friend.full_name}</span>
                             {lastMsg && (
                               <span className="text-[10px] text-slate-500 shrink-0 font-mono">
                                 {formatMsgTime(lastMsg.created_at)}
                               </span>
                             )}
                           </div>
-
-                          <div className="flex items-center justify-between gap-2 mt-0.5">
+                          <div className="flex items-center justify-between gap-1">
                             <p className="text-[11px] text-slate-400 truncate">
-                              {lastMsg ? (
-                                <>
-                                  {lastMsg.sender_id === currentUser.id ? 'You: ' : ''}
-                                  {lastMsg.content || (lastMsg.media_url ? '📷 Photo' : 'Message')}
-                                </>
-                              ) : (
-                                <span className="text-slate-600 italic">Tap to start chat</span>
-                              )}
+                              {lastMsg ? lastMsg.content : `@${friend.username}`}
                             </p>
-
                             {unread > 0 && (
-                              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-cyan-500 text-white shrink-0 animate-pulse">
-                                {unread}
+                              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-cyan-500 text-slate-950 shrink-0">
+                                {unread > 99 ? '99+' : unread}
                               </span>
                             )}
                           </div>
@@ -511,101 +510,47 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
               </div>
             </div>
 
-            {/* Private 1-on-1 Chat Conversation Window */}
-            <div className={`flex-1 flex flex-col h-full bg-slate-950/40 overflow-hidden ${
-              !selectedFriendId ? 'hidden md:flex' : 'flex'
+            {/* Private Message Stream for Selected Friend */}
+            <div className={`flex-1 flex flex-col h-full bg-slate-950/30 ${
+              selectedFriendId ? 'flex' : 'hidden md:flex'
             }`}>
               {selectedFriend ? (
-                <>
-                  {/* Private Chat Header */}
-                  <div className="px-4 py-2.5 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      {/* Back button on mobile */}
-                      <button
-                        type="button"
-                        onClick={() => setSelectedFriendId(null)}
-                        className="md:hidden p-1.5 rounded-xl bg-slate-800 text-slate-300 hover:text-white"
-                        title="Back to friend chats"
-                      >
-                        <ChevronLeft className="w-4 h-4" />
-                      </button>
-
+                <div className="flex-1 overflow-y-auto overscroll-contain p-3 sm:p-4 space-y-2" style={{ touchAction: 'pan-y' }}>
+                  {privateMessages.length === 0 ? (
+                    <div className="h-full min-h-[220px] flex flex-col items-center justify-center text-center p-6 text-slate-500">
                       <Avatar
                         profile={selectedFriend}
                         src={selectedFriend.avatar_url}
                         name={selectedFriend.full_name}
-                        username={selectedFriend.username}
-                        size="sm"
-                        onClick={() => onOpenProfile && onOpenProfile(selectedFriend)}
-                        className="cursor-pointer hover:ring-2 hover:ring-indigo-500"
+                        size="lg"
+                        className="mb-3"
                       />
-
-                      <div>
-                        <p 
-                          onClick={() => onOpenProfile && onOpenProfile(selectedFriend)}
-                          className="text-xs font-bold text-white hover:text-indigo-400 cursor-pointer flex items-center gap-1.5"
-                        >
-                          <span>{selectedFriend.full_name}</span>
-                          <Lock className="w-3 h-3 text-cyan-400" />
-                        </p>
-                        <p className="text-[10px] text-slate-400">
-                          @{selectedFriend.username} • {selectedFriend.course_branch || 'CSE'}
-                        </p>
-                      </div>
+                      <p className="text-sm font-bold text-slate-200">{selectedFriend.full_name}</p>
+                      <p className="text-xs text-slate-400 mt-1 max-w-xs">
+                        This is the beginning of your private 1-on-1 chat history.
+                      </p>
                     </div>
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => onOpenProfile && onOpenProfile(selectedFriend)}
-                        className="px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[11px] font-semibold transition-colors"
-                      >
-                        Profile
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Private Messages Stream */}
-                  <div className="flex-1 overflow-y-auto p-4 space-y-2">
-                    {privateMessages.length === 0 ? (
-                      <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-500">
-                        <Avatar
-                          profile={selectedFriend}
-                          src={selectedFriend.avatar_url}
-                          name={selectedFriend.full_name}
-                          username={selectedFriend.username}
-                          size="lg"
-                          className="mb-3 ring-4 ring-slate-800"
-                        />
-                        <p className="text-sm font-bold text-slate-200">
-                          Private chat with {selectedFriend.full_name}
-                        </p>
-                        <p className="text-xs text-slate-500 mt-1 max-w-xs">
-                          Messages here are completely private between you two. Say hi! 👋
-                        </p>
-                      </div>
-                    ) : (
-                      privateMessages.map(msg => (
-                        <MessageItem
-                          key={msg.id}
-                          message={msg}
-                          currentUser={currentUser}
-                          onReply={setReplyingTo}
-                          onOpenProfile={onOpenProfile}
-                        />
-                      ))
-                    )}
-                    <div ref={messagesEndRef} />
-                  </div>
-                </>
+                  ) : (
+                    privateMessages.map(msg => (
+                      <MessageItem
+                        key={msg.id}
+                        message={msg}
+                        currentUser={currentUser}
+                        onReply={setReplyingTo}
+                        onOpenProfile={onOpenProfile}
+                      />
+                    ))
+                  )}
+                  <div ref={messagesEndRef} />
+                </div>
               ) : (
-                <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-500">
-                  <div className="w-14 h-14 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center text-indigo-400 mb-3 shadow-inner">
+                <div className="h-full flex flex-col items-center justify-center p-6 text-center text-slate-500">
+                  <div className="w-14 h-14 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400 mb-3">
                     <MessageSquare className="w-7 h-7" />
                   </div>
-                  <p className="text-sm font-bold text-slate-300">Select a friend to chat</p>
+                  <p className="text-sm font-bold text-slate-300">Select a Friend</p>
                   <p className="text-xs text-slate-500 mt-1 max-w-xs">
-                    Choose any friend from the list on the left to start a 1-on-1 private conversation.
+                    Choose a friend from the left sidebar to start private messaging.
                   </p>
                 </div>
               )}
@@ -614,38 +559,35 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
         )}
       </div>
 
-      {/* Replying Preview Banner */}
+      {/* REPLIED MESSAGE BANNER */}
       {replyingTo && (
-        <div className="px-4 py-2 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-xs text-indigo-300">
-          <span className="truncate">
-            Replying to <strong className="text-white">@{replyingTo.sender?.full_name || 'Member'}</strong>: "{replyingTo.content}"
-          </span>
-          <button onClick={() => setReplyingTo(null)} className="p-1 hover:text-white">
-            <X className="w-4 h-4" />
+        <div className="px-3 py-2 bg-indigo-950/80 border-t border-indigo-800/80 flex items-center justify-between text-xs text-indigo-200 shrink-0">
+          <div className="flex items-center gap-2 truncate">
+            <span className="font-bold text-indigo-300 shrink-0">Replying to {replyingTo.sender?.full_name || 'User'}:</span>
+            <span className="truncate opacity-80">{replyingTo.content}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setReplyingTo(null)}
+            className="p-1 hover:text-white shrink-0"
+          >
+            <X className="w-3.5 h-3.5" />
           </button>
         </div>
       )}
 
-      {/* Attachment Preview Strip */}
+      {/* ATTACHED FILE PREVIEW */}
       {attachedFile && (
-        <div className="px-4 py-2.5 bg-slate-950 border-t border-slate-800 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5 overflow-hidden">
+        <div className="px-3 py-2 bg-slate-900 border-t border-slate-800 flex items-center justify-between gap-2 shrink-0">
+          <div className="flex items-center gap-2 truncate">
             {attachedFilePreview ? (
-              <img
-                src={attachedFilePreview}
-                alt="Attachment Preview"
-                className="w-10 h-10 rounded-lg object-cover border border-slate-700 shrink-0"
-              />
+              <img src={attachedFilePreview} alt="Preview" className="w-9 h-9 object-cover rounded-lg shrink-0 border border-slate-700" />
             ) : (
-              <div className="w-10 h-10 rounded-lg bg-indigo-950/80 border border-indigo-800 flex items-center justify-center text-indigo-400 shrink-0">
-                <FileText className="w-5 h-5" />
-              </div>
+              <FileText className="w-6 h-6 text-indigo-400 shrink-0" />
             )}
-            <div className="min-w-0">
-              <p className="text-xs font-bold text-white truncate">{attachedFile.name}</p>
-              <p className="text-[10px] text-slate-400">
-                {(attachedFile.size / 1024).toFixed(1)} KB • {isUploading ? `Uploading ${uploadProgress}%` : 'Ready to send'}
-              </p>
+            <div className="truncate">
+              <p className="text-xs font-semibold text-white truncate">{attachedFile.name}</p>
+              <p className="text-[10px] text-slate-400">{(attachedFile.size / 1024).toFixed(1)} KB</p>
             </div>
           </div>
 
@@ -660,13 +602,13 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
         </div>
       )}
 
-      {/* Attachment Dropdown Action Menu */}
+      {/* ATTACHMENT MENU DROPDOWN */}
       {showAttachMenu && (
-        <div className="absolute bottom-16 left-4 bg-slate-900 border border-slate-800 rounded-2xl p-2 shadow-2xl z-30 flex flex-col gap-1 w-44">
+        <div className="absolute bottom-16 left-3 bg-slate-900 border border-slate-800 rounded-2xl p-2 shadow-2xl z-30 flex flex-col gap-1 w-44">
           <button
             type="button"
             onClick={() => photoInputRef.current?.click()}
-            className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-200 hover:bg-slate-800 transition-colors text-left"
+            className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-slate-200 hover:bg-slate-800 text-left"
           >
             <ImageIcon className="w-4 h-4 text-indigo-400" />
             <span>Photos & Videos</span>
@@ -674,7 +616,7 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
           <button
             type="button"
             onClick={() => cameraInputRef.current?.click()}
-            className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-200 hover:bg-slate-800 transition-colors text-left"
+            className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-slate-200 hover:bg-slate-800 text-left"
           >
             <Camera className="w-4 h-4 text-emerald-400" />
             <span>Take Photo</span>
@@ -682,7 +624,7 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
           <button
             type="button"
             onClick={() => docInputRef.current?.click()}
-            className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-200 hover:bg-slate-800 transition-colors text-left"
+            className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-slate-200 hover:bg-slate-800 text-left"
           >
             <FileText className="w-4 h-4 text-cyan-400" />
             <span>Document / PDF</span>
@@ -690,9 +632,9 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
         </div>
       )}
 
-      {/* Mentions Picker Dropdown */}
+      {/* MENTIONS PICKER */}
       {showMentions && activeMode === 'group' && (
-        <div className="bg-slate-900 border-t border-slate-800 p-2 flex gap-2 overflow-x-auto">
+        <div className="bg-slate-900 border-t border-slate-800 p-2 flex gap-2 overflow-x-auto shrink-0">
           {store.profiles.map(p => (
             <button
               key={p.id}
@@ -701,7 +643,7 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
                 setInputText(prev => `${prev} @${p.username} `);
                 setShowMentions(false);
               }}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-indigo-300 hover:bg-slate-800"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-xs text-indigo-300 hover:bg-slate-800 shrink-0"
             >
               <Avatar profile={p} src={p.avatar_url} name={p.full_name} username={p.username} size="sm" />
               <span>@{p.username}</span>
@@ -710,16 +652,16 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
         </div>
       )}
 
-      {/* Message Input Controls Bar (Visible if in group mode, or if friend is selected in private mode) */}
+      {/* BOTTOM INPUT BAR */}
       {(activeMode === 'group' || (activeMode === 'private' && selectedFriendId)) && (
-        <form onSubmit={handleSendMessage} className="p-3 bg-slate-950 border-t border-slate-800 flex items-center gap-2 shrink-0">
+        <form onSubmit={handleSendMessage} className="p-2.5 sm:p-3 bg-slate-950 border-t border-slate-800/90 flex items-center gap-2 shrink-0">
           <button
             type="button"
             onClick={() => setShowAttachMenu(!showAttachMenu)}
-            className={`p-2.5 rounded-xl border transition-colors ${
+            className={`p-2 rounded-xl border transition-colors ${
               attachedFile ? 'bg-indigo-950 border-indigo-500 text-indigo-300' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
             }`}
-            title="Attach photo, video or document"
+            title="Attach file"
           >
             <Paperclip className="w-4 h-4" />
           </button>
@@ -728,7 +670,7 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
             <button
               type="button"
               onClick={() => setShowMentions(!showMentions)}
-              className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-indigo-400 transition-colors"
+              className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-indigo-400 transition-colors"
               title="Mention @Friend"
             >
               <AtSign className="w-4 h-4" />
@@ -740,66 +682,62 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
             placeholder={
               activeMode === 'group'
                 ? "Message College Crew..."
-                : `Message @${selectedFriend?.username || 'Friend'} privately...`
+                : `Message @${selectedFriend?.username || 'Friend'}...`
             }
             value={inputText}
             onChange={e => setInputText(e.target.value)}
-            className="flex-1 px-4 py-2.5 bg-slate-900 border border-slate-800 rounded-2xl text-xs text-white focus:outline-none focus:border-indigo-500"
+            className="flex-1 px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
           />
 
           <button
             type="submit"
             disabled={isUploading || (!inputText.trim() && !attachedFile)}
-            className="px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-bold text-xs rounded-2xl shadow-lg shadow-indigo-600/30 flex items-center gap-1.5 transition-all disabled:opacity-50"
+            className="px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-md flex items-center gap-1.5 transition-all disabled:opacity-40 shrink-0"
           >
             {isUploading ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>Sending...</span>
-              </>
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
             ) : (
-              <>
-                <span>Send</span>
-                <Send className="w-3.5 h-3.5" />
-              </>
+              <Send className="w-3.5 h-3.5" />
             )}
+            <span className="hidden sm:inline">Send</span>
           </button>
         </form>
       )}
 
-      {/* Clear Chat Confirmation Modal */}
+      {/* CLEAR CHAT CONFIRMATION MODAL */}
       {showClearConfirmModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-sm w-full shadow-2xl space-y-4">
-            <div className="w-12 h-12 rounded-2xl bg-rose-950/80 border border-rose-800 flex items-center justify-center text-rose-400 mx-auto">
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-sm w-full p-5 shadow-2xl">
+            <div className="w-12 h-12 rounded-2xl bg-rose-950/50 border border-rose-800/60 flex items-center justify-center text-rose-400 mx-auto mb-3">
               <Trash2 className="w-6 h-6" />
             </div>
 
-            <div className="text-center space-y-1.5">
-              <h3 className="text-base font-bold text-white">
-                {activeMode === 'group' ? 'Clear Group Chat?' : `Clear chat with ${selectedFriend?.full_name}?`}
-              </h3>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                {activeMode === 'group' 
-                  ? 'This will clear all group conversation messages. This action cannot be undone.' 
-                  : `Are you sure you want to delete all messages in your private conversation with ${selectedFriend?.full_name}?`}
-              </p>
-            </div>
+            <h3 className="text-center font-bold text-white text-base">
+              Clear {activeMode === 'group' ? 'Group Chat' : `Chat with ${selectedFriend?.full_name}`}?
+            </h3>
+            
+            <p className="text-center text-xs text-slate-400 mt-1.5 mb-5 leading-relaxed">
+              {activeMode === 'group'
+                ? 'Are you sure you want to clear the entire group chat history? Messages will be cleared from your screen.'
+                : `Are you sure you want to clear your private conversation history with ${selectedFriend?.full_name}?`}
+            </p>
 
-            <div className="flex items-center gap-2 pt-2">
+            <div className="grid grid-cols-2 gap-2.5">
               <button
                 type="button"
                 onClick={() => setShowClearConfirmModal(false)}
-                className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition-colors"
+                className="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-colors"
               >
                 Cancel
               </button>
+              
               <button
                 type="button"
                 onClick={handleConfirmClearChat}
-                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-lg shadow-rose-600/30 transition-colors"
+                className="py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-lg transition-colors flex items-center justify-center gap-1.5"
               >
-                Clear Chat
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Yes, Clear</span>
               </button>
             </div>
           </div>

@@ -199,7 +199,9 @@ export function AppContent() {
           onOpenCreateSheet={() => setShowCreateSheet(true)}
         />
 
-        <main className="flex-1 p-4 md:p-6 overflow-x-hidden">
+        <main className={`flex-1 overflow-x-hidden ${
+          activeTab === 'chat' ? 'p-2 md:p-4 flex flex-col' : 'p-4 md:p-6'
+        }`}>
           {activeTab === 'home' && (
             <MainDashboard
               onSelectTab={setActiveTab}
