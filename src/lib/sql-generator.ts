@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   username TEXT UNIQUE NOT NULL,
   avatar_url TEXT,
   birthday DATE,
-  college TEXT DEFAULT 'GHRCEMN (GHRCE/GHRSTU)',
+  college TEXT DEFAULT 'GHRCEMN',
   course_branch TEXT DEFAULT 'Computer Science & Engineering',
   semester INT DEFAULT 3,
   role TEXT DEFAULT 'member' CHECK (role IN ('admin', 'member')),
@@ -78,7 +78,7 @@ BEGIN
     COALESCE(NEW.raw_user_meta_data->>'full_name', SPLIT_PART(NEW.email, '@', 1)),
     COALESCE(NEW.raw_user_meta_data->>'username', SPLIT_PART(NEW.email, '@', 1) || '_' || SUBSTRING(NEW.id::text, 1, 4)),
     COALESCE((NEW.raw_user_meta_data->>'birthday')::date, CURRENT_DATE),
-    COALESCE(NEW.raw_user_meta_data->>'college', 'GHRCEMN (GHRCE/GHRSTU)'),
+    COALESCE(NEW.raw_user_meta_data->>'college', 'GHRCEMN'),
     COALESCE(NEW.raw_user_meta_data->>'course_branch', 'Computer Science & Engineering'),
     COALESCE((NEW.raw_user_meta_data->>'semester')::int, 3)
   )

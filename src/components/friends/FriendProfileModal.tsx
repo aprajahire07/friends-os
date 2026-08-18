@@ -23,6 +23,7 @@ import { useToast } from '../ui/Toast';
 import { FileUpload } from '../ui/FileUpload';
 import { getResolvedMediaUrl, getSyncMediaUrl } from '../../services/storage';
 import { fetchProfileById } from '../../services/profiles';
+import { Avatar } from '../ui/Avatar';
 
 interface FriendProfileModalProps {
   friend: Profile | null;
@@ -182,16 +183,16 @@ export const FriendProfileModal: React.FC<FriendProfileModalProps> = ({
 
         {/* Top Profile Summary */}
         <div className="flex items-center gap-4 pb-4 border-b border-slate-800">
-          <div className="relative shrink-0">
-            <img
-              src={resolvedAvatarUrl}
-              alt={liveProfile.full_name}
-              className="w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover border-2 border-indigo-500/50 shadow-lg"
-            />
-            <span className="absolute -bottom-1 -right-1 text-sm bg-slate-950 p-0.5 rounded-full shadow border border-slate-800">
-              {liveProfile.status_emoji || '🟢'}
-            </span>
-          </div>
+          <Avatar
+            profile={liveProfile}
+            src={liveProfile.avatar_url}
+            name={liveProfile.full_name}
+            username={liveProfile.username}
+            size="xl"
+            showStatus={true}
+            statusEmoji={liveProfile.status_emoji || '🟢'}
+            className="border-2 border-indigo-500/50 shadow-lg"
+          />
 
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">

@@ -2,6 +2,17 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { Profile } from '../types';
 import { isUserIdBannedLocally, fetchBannedUserIdsFromSupabase } from './appSettings';
 
+export function sanitizeCollege(college?: string): string {
+  if (!college) return 'GHRCEMN';
+  return college
+    .replace(/\s*\/\s*GHRCE\s*\/\s*GHRSTU\)?/gi, ')')
+    .replace(/\(GHRCE\/GHRSTU\)/gi, '')
+    .replace(/\s*\/\s*GHRCE/gi, '')
+    .replace(/\s*\/\s*GHRSTU/gi, '')
+    .replace(/\(\s*\)/g, '')
+    .trim();
+}
+
 export function mapProfileFromSupabase(row: any, bannedUserIds?: string[]): Profile {
   const isBanned = Boolean(
     row.is_banned === true ||
@@ -17,7 +28,7 @@ export function mapProfileFromSupabase(row: any, bannedUserIds?: string[]): Prof
     username: row.username || 'user',
     avatar_url: row.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=250&q=80',
     birthday: row.birthday || '2004-09-15',
-    college: row.college || 'GHRCEMN (GHRCE/GHRSTU)',
+    college: sanitizeCollege(row.college),
     course_branch: row.course_branch || 'Computer Science & Engineering',
     semester: Number(row.semester) || 3,
     role: row.role === 'admin' ? 'admin' : 'member',
@@ -91,7 +102,7 @@ export async function createProfileInSupabase(profile: Partial<Profile> & { id: 
       username: profile.username || profile.email.split('@')[0],
       avatar_url: profile.avatar_url || `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=250&q=80`,
       birthday: profile.birthday || '2004-09-15',
-      college: profile.college || 'GHRCEMN (GHRCE/GHRSTU)',
+      college: profile.college || 'GHRCEMN',
       course_branch: profile.course_branch || 'Computer Science & Engineering',
       semester: profile.semester || 3,
       role: profile.role || 'member',

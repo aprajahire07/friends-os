@@ -24,7 +24,7 @@ import {
 } from '../types';
 import { resolveCollegeId, GHRCE_COLLEGE_ID, SKILLTECH_COLLEGE_ID } from './timetables';
 import { supabase, isSupabaseConfigured } from './supabase';
-import { fetchProfilesFromSupabase, updateProfileInSupabase } from '../services/profiles';
+import { fetchProfilesFromSupabase, updateProfileInSupabase, sanitizeCollege } from '../services/profiles';
 import { 
   fetchMessagesFromSupabase, 
   sendMessageToSupabase, 
@@ -86,7 +86,16 @@ function loadInitialState<T>(key: string, fallback: T): T {
   if (typeof window === 'undefined') return fallback;
   try {
     const data = localStorage.getItem(`friend_os_${key}`);
-    return data ? JSON.parse(data) : fallback;
+    if (!data) return fallback;
+    const parsed = JSON.parse(data);
+    if (key === 'currentUser' && parsed && typeof parsed === 'object') {
+      parsed.college = sanitizeCollege(parsed.college);
+    } else if (key === 'profiles' && Array.isArray(parsed)) {
+      parsed.forEach((p: any) => {
+        if (p) p.college = sanitizeCollege(p.college);
+      });
+    }
+    return parsed;
   } catch (e) {
     console.error(`Failed to parse stored ${key}`, e);
     return fallback;
@@ -484,14 +493,34 @@ export const appStore = {
     notifyListeners();
   },
 
-  updateUserProfile(updatedData: Partial<Profile>) {
+  async updateUserProfile(updates: Partial<Profile>) {
     if (!this.currentUser) return;
-    this.currentUser = { ...this.currentUser, ...updatedData };
-    this.profiles = this.profiles.map(p => p.id === this.currentUser.id ? this.currentUser : p);
+    
+    this.currentUser = {
+      ...this.currentUser,
+      ...updates
+    };
+
+    // Update in all local profiles
+    this.profiles = this.profiles.map(p => p.id === this.currentUser.id ? { ...p, ...updates } : p);
+
+    // Update in chat messages so avatar reflects immediately everywhere
+    this.messages = this.messages.map(m => {
+      if (m.sender_id === this.currentUser.id) {
+        return {
+          ...m,
+          sender: { ...(m.sender || this.currentUser), ...updates }
+        };
+      }
+      return m;
+    });
+
     saveState('currentUser', this.currentUser);
     saveState('profiles', this.profiles);
-    updateProfileInSupabase(this.currentUser.id, updatedData);
+    saveState('messages', this.messages);
     notifyListeners();
+
+    await updateProfileInSupabase(this.currentUser.id, updates);
   },
 
   markDateAttendance(

@@ -5,6 +5,7 @@ import { Profile } from '../../types';
 import { StatusPicker } from './StatusPicker';
 import { FriendProfileModal } from './FriendProfileModal';
 import { useToast } from '../ui/Toast';
+import { Avatar } from '../ui/Avatar';
 
 interface FriendsListProps {
   onOpenPaymentQR: (friend: Profile) => void;
@@ -119,16 +120,16 @@ export const FriendsList: React.FC<FriendsListProps> = ({
               className="bg-slate-900 border border-slate-800 hover:border-indigo-500/50 rounded-2xl p-4 text-slate-100 shadow-lg flex items-center justify-between gap-3 cursor-pointer transition-all active:scale-[0.99]"
             >
               <div className="flex items-center gap-3.5 truncate">
-                <div className="relative shrink-0">
-                  <img
-                    src={f.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=250&q=80'}
-                    alt={f.full_name}
-                    className="w-12 h-12 rounded-full object-cover border-2 border-indigo-500/40 shadow"
-                  />
-                  <span className="absolute -bottom-0.5 -right-0.5 text-xs bg-slate-950 p-0.5 rounded-full shadow">
-                    {f.status_emoji || '🟢'}
-                  </span>
-                </div>
+                <Avatar
+                  profile={f}
+                  src={f.avatar_url}
+                  name={f.full_name}
+                  username={f.username}
+                  size="lg"
+                  showStatus={true}
+                  statusEmoji={f.status_emoji || '🟢'}
+                  className="border-2 border-indigo-500/40 shadow"
+                />
 
                 <div className="truncate">
                   <div className="flex items-center gap-2">

@@ -15,6 +15,7 @@ import { Profile } from '../../types';
 import { appStore, useAppStore } from '../../lib/store';
 import { useToast } from '../ui/Toast';
 import { FRIEND_OS_ADMIN_EMAIL } from '../../services/appSettings';
+import { Avatar } from '../ui/Avatar';
 
 export const UserManagementView: React.FC = () => {
   const { showToast } = useToast();
@@ -183,13 +184,15 @@ export const UserManagementView: React.FC = () => {
                 {/* User Info */}
                 <div className="flex items-center gap-3">
                   <div className="relative">
-                    <img
-                      src={profile.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${profile.username}`}
-                      alt={profile.full_name}
-                      className="w-11 h-11 rounded-full object-cover border border-slate-700 bg-slate-900"
+                    <Avatar
+                      profile={profile}
+                      src={profile.avatar_url}
+                      name={profile.full_name}
+                      username={profile.username}
+                      size="md"
                     />
                     {isBanned && (
-                      <span className="absolute -bottom-1 -right-1 p-0.5 rounded-full bg-rose-600 text-white">
+                      <span className="absolute -bottom-1 -right-1 p-0.5 rounded-full bg-rose-600 text-white shadow">
                         <Lock className="w-3 h-3" />
                       </span>
                     )}

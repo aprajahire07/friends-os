@@ -3,6 +3,7 @@ import { Reply, Trash2, Smile, Image as ImageIcon, FileText, Download, ExternalL
 import { ChatMessage, Profile } from '../../types';
 import { appStore } from '../../lib/store';
 import { getSyncMediaUrl } from '../../services/storage';
+import { Avatar } from '../ui/Avatar';
 
 interface MessageItemProps {
   message: ChatMessage;
@@ -42,12 +43,15 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, currentUser, 
 
   return (
     <div className={`flex items-start gap-3 my-3 group ${isSelf ? 'flex-row-reverse' : ''}`}>
-      {/* Avatar */}
-      <img
-        src={sender?.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80'}
-        alt=""
+      {/* Avatar with reliable fallback */}
+      <Avatar
+        profile={sender}
+        src={sender?.avatar_url}
+        name={sender?.full_name || 'Member'}
+        username={sender?.username}
+        size="sm"
         onClick={() => sender && onOpenProfile && onOpenProfile(sender)}
-        className={`w-8 h-8 rounded-full object-cover shrink-0 border border-slate-700 mt-1 ${onOpenProfile ? 'cursor-pointer hover:ring-2 hover:ring-indigo-500' : ''}`}
+        className={`mt-1 ${onOpenProfile ? 'hover:ring-2 hover:ring-indigo-500' : ''}`}
         title={sender?.full_name ? `View ${sender.full_name}'s profile` : ''}
       />
 

@@ -24,6 +24,7 @@ import { useToast } from '../ui/Toast';
 import { FileUpload } from '../ui/FileUpload';
 import { getSyncMediaUrl } from '../../services/storage';
 import { isUserAdmin } from '../../services/appSettings';
+import { Avatar } from '../ui/Avatar';
 
 interface MeTabProps {
   onSelectTab: (tab: string) => void;
@@ -72,10 +73,15 @@ export const MeTab: React.FC<MeTabProps> = ({
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 text-slate-100 shadow-xl relative overflow-hidden">
         <div className="flex items-center gap-4">
           <div className="relative shrink-0 group">
-            <img
-              src={resolvedAvatarUrl}
-              alt={user.full_name}
-              className="w-16 h-16 rounded-full object-cover border-2 border-indigo-500/40 shadow-lg"
+            <Avatar
+              profile={user}
+              src={user.avatar_url}
+              name={user.full_name}
+              username={user.username}
+              size="xl"
+              showStatus={true}
+              statusEmoji={user.status_emoji || '🟢'}
+              className="border-2 border-indigo-500/40 shadow-lg"
             />
             <button
               type="button"
@@ -85,9 +91,6 @@ export const MeTab: React.FC<MeTabProps> = ({
             >
               <Camera className="w-5 h-5" />
             </button>
-            <span className="absolute -bottom-1 -right-1 text-sm bg-slate-950 p-0.5 rounded-full shadow">
-              {user.status_emoji || '🟢'}
-            </span>
           </div>
 
           <div>

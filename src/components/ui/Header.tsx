@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { Profile, NavigationTab } from '../../types';
 import { isSupabaseConfigured } from '../../lib/supabase';
+import { Avatar } from './Avatar';
 
 interface HeaderProps {
   currentUser: Profile;
@@ -44,14 +45,16 @@ export const Header: React.FC<HeaderProps> = ({
           onClick={() => onSelectTab('profile')}
           className="relative group focus:outline-none"
         >
-          <img
-            src={currentUser.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80'}
-            alt={currentUser.full_name}
-            className="w-10 h-10 rounded-full object-cover border-2 border-indigo-500/50 group-hover:border-indigo-400 transition-colors"
+          <Avatar
+            profile={currentUser}
+            src={currentUser.avatar_url}
+            name={currentUser.full_name}
+            username={currentUser.username}
+            size="md"
+            showStatus={true}
+            statusEmoji={currentUser.status_emoji || '🟢'}
+            className="border-2 border-indigo-500/50 group-hover:border-indigo-400 transition-colors"
           />
-          <span className="absolute -bottom-0.5 -right-0.5 text-xs bg-slate-900 rounded-full p-0.5 shadow">
-            {currentUser.status_emoji || '🟢'}
-          </span>
         </button>
 
         <div>

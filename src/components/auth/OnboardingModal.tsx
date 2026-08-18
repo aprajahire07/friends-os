@@ -27,7 +27,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClos
       setUsername(currentUser.username || '');
       setEmail(currentUser.email || '');
       setBirthday(currentUser.birthday || '');
-      setCollege(currentUser.college || 'GH Raisoni College of Engineering and Management (GHRCEMN / GHRCE / GHRSTU)');
+      setCollege(currentUser.college || 'GH Raisoni College of Engineering and Management (GHRCEMN)');
       setSemester(currentUser.semester?.toString() || '3');
     }
   }, [currentUser, isOpen]);
@@ -167,7 +167,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClos
                 <div className="space-y-2.5">
                   <button
                     type="button"
-                    onClick={() => setCollege('GH Raisoni College of Engineering and Management (GHRCEMN / GHRCE / GHRSTU)')}
+                    onClick={() => setCollege('GH Raisoni College of Engineering and Management (GHRCEMN)')}
                     className={`w-full p-3 rounded-2xl border text-left transition-all flex items-center justify-between ${
                       college.includes('GH') || college.includes('GHRCE') || college.includes('GHRCEM')
                         ? 'bg-cyan-950/60 border-cyan-500 text-white ring-1 ring-cyan-500'
@@ -175,7 +175,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onClos
                     }`}
                   >
                     <div>
-                      <p className="text-xs font-black text-white">GHRCEMN (GHRCE / GHRSTU)</p>
+                      <p className="text-xs font-black text-white">GHRCEMN</p>
                       <p className="text-[10px] text-slate-400 mt-0.5">Section-A Class Schedule & Attendance</p>
                     </div>
                     {(college.includes('GH') || college.includes('GHRCE') || college.includes('GHRCEM')) && (
