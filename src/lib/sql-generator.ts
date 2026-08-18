@@ -136,8 +136,9 @@ CREATE TABLE IF NOT EXISTS public.messages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   group_id UUID REFERENCES public.friend_groups(id) ON DELETE CASCADE,
   channel_id UUID REFERENCES public.chat_channels(id) ON DELETE SET NULL,
-  category TEXT NOT NULL DEFAULT 'general' CHECK (category IN ('general', 'college', 'plans', 'memories', 'random')),
+  category TEXT NOT NULL DEFAULT 'general',
   sender_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  recipient_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
   content TEXT NOT NULL,
   media_url TEXT,
   reply_to_id UUID REFERENCES public.messages(id) ON DELETE SET NULL,
@@ -146,6 +147,10 @@ CREATE TABLE IF NOT EXISTS public.messages (
   deleted_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Ensure recipient_id column exists on existing installations
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS recipient_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE;
+ALTER TABLE public.messages DROP CONSTRAINT IF EXISTS messages_category_check;
 
 CREATE TABLE IF NOT EXISTS public.message_reactions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

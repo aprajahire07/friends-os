@@ -52,13 +52,14 @@ export interface GroupMember {
   profile?: Profile;
 }
 
-export type ChatCategory = 'general' | 'college' | 'plans' | 'memories' | 'random';
+export type ChatCategory = 'general' | 'college' | 'plans' | 'memories' | 'random' | 'direct';
 
 export interface ChatMessage {
   id: string;
   group_id: string;
   sender_id: string;
   category: ChatCategory;
+  recipient_id?: string | null;
   content: string;
   media_url?: string | null;
   reply_to_id?: string | null;
@@ -69,6 +70,7 @@ export interface ChatMessage {
   reactions: Record<string, string[]>; // { "❤️": ["user1", "user2"], "🔥": ["user3"] }
   created_at: string;
   sender?: Profile;
+  recipient?: Profile;
 }
 
 export interface ExpenseParticipant {

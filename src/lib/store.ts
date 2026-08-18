@@ -28,6 +28,7 @@ import { fetchProfilesFromSupabase, updateProfileInSupabase, sanitizeCollege } f
 import { 
   fetchMessagesFromSupabase, 
   sendMessageToSupabase, 
+  clearMessagesFromSupabase,
   fetchMessageReadsFromSupabase, 
   markCategoryAsReadInSupabase,
   markAllCategoriesAsReadInSupabase 
@@ -800,10 +801,17 @@ export const appStore = {
   },
 
   // Chat Actions
-  async addMessage(category: ChatCategory, content: string, media_url?: string, reply_to_id?: string) {
+  async addMessage(
+    category: ChatCategory, 
+    content: string, 
+    media_url?: string, 
+    reply_to_id?: string,
+    recipient_id?: string
+  ) {
     if (!this.currentUser) return;
     const replyMsg = reply_to_id ? this.messages.find(m => m.id === reply_to_id) : undefined;
     const senderProfile = this.currentUser;
+    const recipientProfile = recipient_id ? this.profiles.find(p => p.id === recipient_id) : undefined;
     const groupId = this.group?.id || 'main-group';
     const tempId = `msg-${Date.now()}`;
 
@@ -811,6 +819,7 @@ export const appStore = {
       id: tempId,
       group_id: groupId,
       sender_id: this.currentUser.id,
+      recipient_id: recipient_id || null,
       category,
       content,
       media_url: media_url || null,
@@ -822,16 +831,18 @@ export const appStore = {
       reactions: {},
       created_at: new Date().toISOString(),
       sender: senderProfile,
+      recipient: recipientProfile
     };
 
     this.messages = [...this.messages, newMsg];
     saveState('messages', this.messages);
 
-    // Update active category read pointer for current user immediately
+    // Update active category or DM read pointer for current user immediately
     const nowIso = new Date().toISOString();
+    const readKey = recipient_id ? `dm_${recipient_id}` : (category || 'general');
     this.messageReads = {
       ...this.messageReads,
-      [category]: nowIso
+      [readKey]: nowIso
     };
     saveState(`messageReads_${this.currentUser.id}`, this.messageReads);
     notifyListeners();
@@ -839,6 +850,7 @@ export const appStore = {
     const remoteMsg = await sendMessageToSupabase({
       group_id: groupId,
       sender_id: this.currentUser.id,
+      recipient_id,
       category,
       content,
       media_url,
@@ -846,12 +858,47 @@ export const appStore = {
     });
 
     if (remoteMsg) {
-      this.messages = this.messages.map(m => m.id === tempId ? { ...remoteMsg, sender: senderProfile } : m);
+      this.messages = this.messages.map(m => m.id === tempId ? { 
+        ...remoteMsg, 
+        sender: senderProfile,
+        recipient: recipientProfile,
+        recipient_id: recipient_id || remoteMsg.recipient_id 
+      } : m);
       saveState('messages', this.messages);
       notifyListeners();
     }
 
     return newMsg;
+  },
+
+  async clearGroupChat() {
+    if (!this.currentUser) return;
+    // Remove group chat messages
+    this.messages = this.messages.filter(m => m.category === 'direct' || Boolean(m.recipient_id) || m.category?.startsWith('dm_'));
+    saveState('messages', this.messages);
+    notifyListeners();
+
+    await clearMessagesFromSupabase({ isGroup: true });
+  },
+
+  async clearPrivateChat(friendId: string) {
+    if (!this.currentUser || !friendId) return;
+    const myId = this.currentUser.id;
+
+    // Remove direct messages between myId and friendId
+    this.messages = this.messages.filter(m => {
+      const isDirectChat = 
+        (m.sender_id === myId && m.recipient_id === friendId) ||
+        (m.sender_id === friendId && m.recipient_id === myId) ||
+        (m.category === `dm_${friendId}` && (m.sender_id === myId || m.sender_id === friendId)) ||
+        (m.category === `dm_${myId}` && (m.sender_id === myId || m.sender_id === friendId));
+      return !isDirectChat;
+    });
+
+    saveState('messages', this.messages);
+    notifyListeners();
+
+    await clearMessagesFromSupabase({ userId: myId, friendId });
   },
 
   toggleReaction(messageId: string, emoji: string) {
@@ -897,19 +944,60 @@ export const appStore = {
     await markCategoryAsReadInSupabase(this.currentUser.id, category);
   },
 
+  async markDirectMessagesAsRead(friendId: string) {
+    if (!this.currentUser || !friendId) return;
+    const now = new Date().toISOString();
+    this.messageReads = {
+      ...this.messageReads,
+      [`dm_${friendId}`]: now
+    };
+    saveState(`messageReads_${this.currentUser.id}`, this.messageReads);
+    notifyListeners();
+  },
+
   async markAllMessagesAsRead() {
     if (!this.currentUser) return;
     const now = new Date().toISOString();
-    const categories: ChatCategory[] = ['general', 'college', 'plans', 'memories', 'random'];
+    const categories: ChatCategory[] = ['general', 'college', 'plans', 'memories', 'random', 'direct'];
     const updated: Record<string, string> = { ...this.messageReads };
     for (const cat of categories) {
       updated[cat] = now;
     }
+    // Also mark all friend direct chats as read
+    this.profiles.forEach(p => {
+      updated[`dm_${p.id}`] = now;
+    });
     this.messageReads = updated;
     saveState(`messageReads_${this.currentUser.id}`, this.messageReads);
     notifyListeners();
 
     await markAllCategoriesAsReadInSupabase(this.currentUser.id);
+  },
+
+  getDirectUnreadCount(friendId: string): number {
+    if (!this.currentUser || !friendId) return 0;
+    const myId = this.currentUser.id;
+    const lastRead = this.messageReads[`dm_${friendId}`] || '1970-01-01T00:00:00.000Z';
+    const lastReadTime = new Date(lastRead).getTime();
+
+    return this.messages.filter(m => {
+      const isFromFriendToMe = 
+        m.sender_id === friendId && 
+        (m.recipient_id === myId || m.category === 'direct' || m.category === `dm_${myId}`);
+      return isFromFriendToMe && new Date(m.created_at).getTime() > lastReadTime;
+    }).length;
+  },
+
+  getGroupUnreadCount(): number {
+    if (!this.currentUser) return 0;
+    const myId = this.currentUser.id;
+    const lastRead = this.messageReads['general'] || '1970-01-01T00:00:00.000Z';
+    const lastReadTime = new Date(lastRead).getTime();
+
+    return this.messages.filter(m => {
+      const isGroup = !m.recipient_id && m.category !== 'direct' && !m.category?.startsWith('dm_');
+      return isGroup && m.sender_id !== myId && new Date(m.created_at).getTime() > lastReadTime;
+    }).length;
   },
 
   getUnreadMessageCount(category?: ChatCategory): number {
@@ -926,19 +1014,16 @@ export const appStore = {
       ).length;
     }
 
-    // Sum across all categories
-    const categories: ChatCategory[] = ['general', 'college', 'plans', 'memories', 'random'];
-    let total = 0;
-    for (const cat of categories) {
-      const lastRead = this.messageReads[cat] || '1970-01-01T00:00:00.000Z';
-      const lastReadTime = new Date(lastRead).getTime();
-      total += this.messages.filter(
-        m => (m.category === cat || (!m.category && cat === 'general')) &&
-             m.sender_id !== myId &&
-             new Date(m.created_at).getTime() > lastReadTime
-      ).length;
-    }
-    return total;
+    // Total unread: group + all direct messages
+    const groupUnread = this.getGroupUnreadCount();
+    let dmUnread = 0;
+    this.profiles.forEach(p => {
+      if (p.id !== myId) {
+        dmUnread += this.getDirectUnreadCount(p.id);
+      }
+    });
+
+    return groupUnread + dmUnread;
   },
 
   // Expenses & Loans Actions

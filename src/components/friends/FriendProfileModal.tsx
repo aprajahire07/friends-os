@@ -31,6 +31,7 @@ interface FriendProfileModalProps {
   onOpenPaymentQR?: (friend: Profile) => void;
   onSendSnapTo?: (friend: Profile) => void;
   onSelectTab?: (tab: string) => void;
+  onOpenChatWithFriend?: (friend: Profile) => void;
   onOpenAddMoneyForFriend?: (friend: Profile) => void;
   onOpenBorrowForFriend?: (friend: Profile) => void;
 }
@@ -41,6 +42,7 @@ export const FriendProfileModal: React.FC<FriendProfileModalProps> = ({
   onOpenPaymentQR,
   onSendSnapTo,
   onSelectTab,
+  onOpenChatWithFriend,
   onOpenAddMoneyForFriend,
   onOpenBorrowForFriend,
 }) => {
@@ -464,7 +466,11 @@ export const FriendProfileModal: React.FC<FriendProfileModalProps> = ({
             <button
               onClick={() => {
                 onClose();
-                if (onSelectTab) onSelectTab('chat');
+                if (onOpenChatWithFriend && liveProfile) {
+                  onOpenChatWithFriend(liveProfile);
+                } else if (onSelectTab) {
+                  onSelectTab('chat');
+                }
               }}
               className="py-2 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
             >

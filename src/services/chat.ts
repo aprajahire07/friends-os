@@ -40,7 +40,8 @@ export async function fetchMessagesFromSupabase(category?: ChatCategory): Promis
       id: row.id,
       group_id: row.group_id,
       sender_id: row.sender_id,
-      category: row.category as ChatCategory,
+      recipient_id: row.recipient_id || (typeof row.category === 'string' && row.category.startsWith('dm_') ? row.category.replace('dm_', '') : null),
+      category: (row.category as ChatCategory) || 'general',
       content: row.content,
       media_url: row.media_url,
       reply_to_id: row.reply_to_id,
@@ -71,18 +72,20 @@ export async function sendMessageToSupabase(msg: Partial<ChatMessage>): Promise<
       // Auth check fallback
     }
 
-    // If sender_id is not a valid UUID (e.g. testing profiles like 'user-babita-test-01')
-    // and we have an authenticated user with a valid UUID, align with authUserId for RLS
     if (authUserId && !isValidUUID(effectiveSenderId)) {
       effectiveSenderId = authUserId;
     }
 
     const payload: any = {
       sender_id: effectiveSenderId,
-      category: msg.category || 'general',
+      category: msg.category || (msg.recipient_id ? 'direct' : 'general'),
       content: msg.content || '',
       media_url: msg.media_url || null,
     };
+
+    if (msg.recipient_id && isValidUUID(msg.recipient_id)) {
+      payload.recipient_id = msg.recipient_id;
+    }
 
     if (isValidUUID(msg.group_id)) {
       payload.group_id = msg.group_id;
@@ -99,6 +102,35 @@ export async function sendMessageToSupabase(msg: Partial<ChatMessage>): Promise<
       .single();
 
     if (error) {
+      // If recipient_id column is not in DB schema yet, try without recipient_id column
+      if (error.message?.includes('recipient_id') || error.code === '42703') {
+        const fallbackPayload = { ...payload };
+        delete fallbackPayload.recipient_id;
+        fallbackPayload.category = msg.recipient_id ? `dm_${msg.recipient_id}` : (msg.category || 'general');
+        
+        const { data: fbData, error: fbErr } = await supabase
+          .from('messages')
+          .insert([fallbackPayload])
+          .select()
+          .single();
+
+        if (!fbErr && fbData) {
+          return {
+            id: fbData.id,
+            group_id: fbData.group_id,
+            sender_id: msg.sender_id,
+            recipient_id: msg.recipient_id,
+            category: msg.category || 'direct',
+            content: fbData.content,
+            media_url: fbData.media_url,
+            reply_to_id: fbData.reply_to_id,
+            reactions: fbData.reactions || {},
+            created_at: fbData.created_at,
+            sender: msg.sender
+          };
+        }
+      }
+
       const isRlsError = 
         error.message?.includes('row-level security') || 
         error.message?.includes('policy') || 
@@ -106,7 +138,6 @@ export async function sendMessageToSupabase(msg: Partial<ChatMessage>): Promise<
         error.code === 'PGRST301';
 
       if (isRlsError) {
-        // Try fallback with authUserId if we attempted with a different sender_id
         if (authUserId && effectiveSenderId !== authUserId) {
           try {
             payload.sender_id = authUserId;
@@ -121,6 +152,7 @@ export async function sendMessageToSupabase(msg: Partial<ChatMessage>): Promise<
                 id: retryData.id,
                 group_id: retryData.group_id,
                 sender_id: msg.sender_id || retryData.sender_id,
+                recipient_id: msg.recipient_id,
                 category: retryData.category as ChatCategory,
                 content: retryData.content,
                 media_url: retryData.media_url,
@@ -146,6 +178,7 @@ export async function sendMessageToSupabase(msg: Partial<ChatMessage>): Promise<
       id: data.id,
       group_id: data.group_id,
       sender_id: data.sender_id,
+      recipient_id: data.recipient_id || msg.recipient_id,
       category: data.category as ChatCategory,
       content: data.content,
       media_url: data.media_url,
@@ -157,6 +190,40 @@ export async function sendMessageToSupabase(msg: Partial<ChatMessage>): Promise<
   } catch (err: any) {
     console.info('Message send notice:', err?.message || err);
     return null;
+  }
+}
+
+export async function clearMessagesFromSupabase(options: {
+  isGroup?: boolean;
+  userId?: string;
+  friendId?: string;
+}): Promise<boolean> {
+  if (!isSupabaseConfigured || !supabase) return false;
+
+  try {
+    if (options.isGroup) {
+      // Clear group messages
+      await supabase
+        .from('messages')
+        .delete()
+        .neq('category', 'direct')
+        .not('category', 'like', 'dm_%');
+      return true;
+    } else if (options.userId && options.friendId) {
+      // Clear DM messages between userId and friendId
+      const uId = options.userId;
+      const fId = options.friendId;
+      
+      await supabase
+        .from('messages')
+        .delete()
+        .or(`and(sender_id.eq.${uId},recipient_id.eq.${fId}),and(sender_id.eq.${fId},recipient_id.eq.${uId}),category.eq.dm_${fId},category.eq.dm_${uId}`);
+      return true;
+    }
+    return false;
+  } catch (err) {
+    console.warn('Supabase clear messages notice:', err);
+    return false;
   }
 }
 

@@ -11,6 +11,7 @@ interface FriendsListProps {
   onOpenPaymentQR: (friend: Profile) => void;
   onSendSnapTo: (friend: Profile) => void;
   onSelectTab: (tab: string) => void;
+  onOpenChatWithFriend?: (friend: Profile) => void;
   onOpenAddMoneyForFriend?: (friend: Profile) => void;
   onOpenBorrowForFriend?: (friend: Profile) => void;
 }
@@ -19,6 +20,7 @@ export const FriendsList: React.FC<FriendsListProps> = ({
   onOpenPaymentQR,
   onSendSnapTo,
   onSelectTab,
+  onOpenChatWithFriend,
   onOpenAddMoneyForFriend,
   onOpenBorrowForFriend,
 }) => {
@@ -161,9 +163,15 @@ export const FriendsList: React.FC<FriendsListProps> = ({
               {!isSelf && (
                 <div className="flex items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
                   <button
-                    onClick={() => onSelectTab('chat')}
+                    onClick={() => {
+                      if (onOpenChatWithFriend) {
+                        onOpenChatWithFriend(f);
+                      } else {
+                        onSelectTab('chat');
+                      }
+                    }}
                     className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors"
-                    title="Message"
+                    title={`Message ${f.full_name}`}
                   >
                     <MessageSquare className="w-4 h-4 text-indigo-400" />
                   </button>

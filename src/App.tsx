@@ -118,9 +118,15 @@ export function AppContent() {
   // Preselected friend for 1-on-1 actions
   const [preselectedFriend, setPreselectedFriend] = useState<Profile | null>(null);
   const [friendProfile, setFriendProfile] = useState<Profile | null>(null);
+  const [activeChatFriendId, setActiveChatFriendId] = useState<string | null>(null);
 
   const handleOpenFriendProfile = (friend: Profile) => {
     setFriendProfile(friend);
+  };
+
+  const handleOpenChatWithFriend = (friend: Profile) => {
+    setActiveChatFriendId(friend.id);
+    setActiveTab('chat');
   };
 
   const handleOpenPaymentQR = (friend: Profile) => {
@@ -211,12 +217,18 @@ export function AppContent() {
               onOpenPaymentQR={handleOpenPaymentQR}
               onSendSnapTo={handleSendSnapTo}
               onSelectTab={setActiveTab}
+              onOpenChatWithFriend={handleOpenChatWithFriend}
               onOpenAddMoneyForFriend={handleOpenAddMoneyForFriend}
               onOpenBorrowForFriend={handleOpenBorrowForFriend}
             />
           )}
 
-          {activeTab === 'chat' && <GroupChat onOpenProfile={handleOpenFriendProfile} />}
+          {activeTab === 'chat' && (
+            <GroupChat 
+              initialFriendId={activeChatFriendId} 
+              onOpenProfile={handleOpenFriendProfile} 
+            />
+          )}
 
           {activeTab === 'expenses' && (
             <ExpenseDashboard
@@ -273,6 +285,7 @@ export function AppContent() {
         onOpenPaymentQR={handleOpenPaymentQR}
         onSendSnapTo={handleSendSnapTo}
         onSelectTab={setActiveTab}
+        onOpenChatWithFriend={handleOpenChatWithFriend}
         onOpenAddMoneyForFriend={handleOpenAddMoneyForFriend}
         onOpenBorrowForFriend={handleOpenBorrowForFriend}
       />
