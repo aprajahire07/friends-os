@@ -12,6 +12,7 @@ import { SnapsFeed } from './components/snaps/SnapsFeed';
 import { BorrowedTracker } from './components/borrowed/BorrowedTracker';
 import { CollegeClassesTab } from './components/college/CollegeClassesTab';
 import { NotesList } from './components/notes/NotesList';
+import { UploadNoteModal } from './components/notes/UploadNoteModal';
 import { MeTab } from './components/profile/MeTab';
 import { PaymentQRModal } from './components/expenses/PaymentQRModal';
 import { FriendProfileModal } from './components/friends/FriendProfileModal';
@@ -111,6 +112,7 @@ export function AppContent() {
   const [showCreatePlanModal, setShowCreatePlanModal] = useState(false);
   const [showAddMemoryModal, setShowAddMemoryModal] = useState(false);
   const [showAddBorrowedModal, setShowAddBorrowedModal] = useState(false);
+  const [showAddNoteModal, setShowAddNoteModal] = useState(false);
   const [showOnboardingModal, setShowOnboardingModal] = useState(false);
 
   // Preselected friend for 1-on-1 actions
@@ -261,6 +263,7 @@ export function AppContent() {
         onOpenCreatePlan={() => setShowCreatePlanModal(true)}
         onOpenAddMemory={() => setShowAddMemoryModal(true)}
         onOpenAddBorrowed={() => setShowAddBorrowedModal(true)}
+        onOpenAddNote={() => setShowAddNoteModal(true)}
       />
 
       {/* Global Modals */}
@@ -302,6 +305,11 @@ export function AppContent() {
       <UploadMemoryModal
         isOpen={showAddMemoryModal}
         onClose={() => setShowAddMemoryModal(false)}
+      />
+
+      <UploadNoteModal
+        isOpen={showAddNoteModal}
+        onClose={() => setShowAddNoteModal(false)}
       />
 
       <AddBorrowedItemModal

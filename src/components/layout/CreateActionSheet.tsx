@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Camera, Wallet, CalendarDays, Images, Backpack } from 'lucide-react';
+import { X, Camera, Wallet, CalendarDays, Images, Backpack, FileText } from 'lucide-react';
 
 interface CreateActionSheetProps {
   isOpen: boolean;
@@ -9,6 +9,7 @@ interface CreateActionSheetProps {
   onOpenCreatePlan: () => void;
   onOpenAddMemory: () => void;
   onOpenAddBorrowed: () => void;
+  onOpenAddNote?: () => void;
 }
 
 export const CreateActionSheet: React.FC<CreateActionSheetProps> = ({
@@ -19,6 +20,7 @@ export const CreateActionSheet: React.FC<CreateActionSheetProps> = ({
   onOpenCreatePlan,
   onOpenAddMemory,
   onOpenAddBorrowed,
+  onOpenAddNote,
 }) => {
   if (!isOpen) return null;
 
@@ -50,6 +52,13 @@ export const CreateActionSheet: React.FC<CreateActionSheetProps> = ({
       icon: Images,
       color: 'from-pink-500 to-rose-600 text-white',
       action: onOpenAddMemory,
+    },
+    {
+      title: 'Add Note / PDF Doc',
+      subtitle: 'Upload shared multi-photo lecture notes or PDF files',
+      icon: FileText,
+      color: 'from-amber-500 to-amber-600 text-slate-950',
+      action: onOpenAddNote || (() => {}),
     },
     {
       title: 'Add Borrowed Item',

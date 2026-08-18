@@ -60,12 +60,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, initialMode = '
       });
 
       if (error) {
-        if (error.message.includes('Invalid login credentials')) {
+        const msg = error.message.toLowerCase();
+        if (msg.includes('invalid login credentials') || msg.includes('invalid credentials')) {
           throw new Error('Invalid email or password. Please check your credentials or create a new account.');
         }
-        if (error.message.includes('Email not confirmed')) {
-          setMode('verification_notice');
-          return;
+        if (msg.includes('email not confirmed')) {
+          throw new Error('Email not confirmed yet. (Tip: Supabase Dashboard > Authentication > Providers > Email me "Confirm email" ko OFF karein taaki instant login ho sake).');
+        }
+        if (msg.includes('rate limit') || msg.includes('over_email_send_rate_limit') || (error as any).status === 429) {
+          throw new Error('Email rate limit exceeded (Supabase Free limit 3 emails/hr). Please wait a few minutes or disable "Confirm email" in Supabase Dashboard.');
         }
         throw error;
       }
@@ -193,8 +196,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, initialMode = '
         }
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Failed to create account.');
-      showToast('Signup Failed', err.message || 'Could not register user', 'error');
+      const msg = (err?.message || '').toLowerCase();
+      let customErr = err.message || 'Failed to create account.';
+      
+      if (msg.includes('rate limit') || msg.includes('over_email_send_rate_limit') || err?.status === 429) {
+        customErr = 'Email rate limit exceeded (Supabase Free limit 3 emails/hr). Please turn OFF "Confirm email" in Supabase Dashboard (Authentication > Providers > Email) for unlimited instant signups.';
+      } else if (msg.includes('user already registered') || msg.includes('already registered')) {
+        customErr = 'An account with this email already exists. Please sign in instead.';
+      }
+      
+      setErrorMessage(customErr);
+      showToast('Signup Notice', customErr, 'error');
     } finally {
       setLoading(false);
     }
@@ -215,7 +227,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, initialMode = '
         redirectTo: window.location.origin
       });
 
-      if (error) throw error;
+      if (error) {
+        const msg = error.message.toLowerCase();
+        if (msg.includes('rate limit') || msg.includes('over_email_send_rate_limit') || (error as any).status === 429) {
+          throw new Error('Email rate limit exceeded for password reset. Please wait 15 minutes before retrying.');
+        }
+        throw error;
+      }
 
       setSuccessMessage(`Password reset link sent to ${email}. Please check your inbox and spam folder.`);
       showToast('Reset Link Sent', 'Check your email inbox for the recovery link.');

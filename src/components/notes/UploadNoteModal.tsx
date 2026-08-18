@@ -44,7 +44,7 @@ export const UploadNoteModal: React.FC<UploadNoteModalProps> = ({ isOpen, onClos
     setErrorMsg(null);
     if (!e.target.files || e.target.files.length === 0) return;
 
-    const filesArray = Array.from(e.target.files);
+    const filesArray: File[] = Array.from(e.target.files);
     const newItems: SelectedFileItem[] = [];
 
     for (const f of filesArray) {

@@ -5,8 +5,9 @@ export const FRIEND_OS_ADMIN_EMAIL =
   (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_FRIEND_OS_ADMIN_EMAIL) || 
   'aprajahire07@gmail.com';
 
-// SHA-256 for default '0000'
-export const DEFAULT_PASSCODE_HASH = '4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a';
+// Correct SHA-256 for default '0000'
+export const DEFAULT_PASSCODE_HASH = '9af15b336e6a9619928537df30b2e6a2376569fcf9d7e773eccede65606529a0';
+export const LEGACY_PASSCODE_HASH = '4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a';
 
 export function isUUID(str?: string | null): boolean {
   if (!str) return false;
@@ -14,17 +15,22 @@ export function isUUID(str?: string | null): boolean {
 }
 
 export async function computeSha256(text: string): Promise<string> {
+  const clean = text.trim();
   if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle) {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(text);
-    const hashBuffer = await window.crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    try {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(clean);
+      const hashBuffer = await window.crypto.subtle.digest('SHA-256', data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').toLowerCase();
+    } catch {
+      // Fallback below
+    }
   }
-  // Fallback simple hex encoding for edge cases
+  // Standard fallback
   let hash = 0;
-  for (let i = 0; i < text.length; i++) {
-    const char = text.charCodeAt(i);
+  for (let i = 0; i < clean.length; i++) {
+    const char = clean.charCodeAt(i);
     hash = ((hash << 5) - hash) + char;
     hash |= 0;
   }
@@ -34,7 +40,7 @@ export async function computeSha256(text: string): Promise<string> {
 export function isUserAdmin(profile?: Profile | null): boolean {
   if (!profile) return false;
   if (profile.role === 'admin') return true;
-  if (profile.email && FRIEND_OS_ADMIN_EMAIL && profile.email.toLowerCase() === FRIEND_OS_ADMIN_EMAIL.toLowerCase()) {
+  if (profile.email && FRIEND_OS_ADMIN_EMAIL && profile.email.trim().toLowerCase() === FRIEND_OS_ADMIN_EMAIL.trim().toLowerCase()) {
     return true;
   }
   return false;
@@ -73,7 +79,10 @@ export async function fetchMemoryLockSettingsFromSupabase(): Promise<MemoryLockS
           ? Boolean(data.value.locked) 
           : true;
 
-      const remoteHash = data.value.passcode_hash || DEFAULT_PASSCODE_HASH;
+      let remoteHash = data.value.passcode_hash || DEFAULT_PASSCODE_HASH;
+      if (remoteHash === LEGACY_PASSCODE_HASH) {
+        remoteHash = DEFAULT_PASSCODE_HASH;
+      }
 
       // Sync local storage caches
       if (typeof localStorage !== 'undefined') {
@@ -105,24 +114,47 @@ export async function updateMemoryLockInSupabase(
 ): Promise<boolean> {
   if (!isSupabaseConfigured || !supabase) return false;
 
-  const finalHash = passcodeHash || DEFAULT_PASSCODE_HASH;
-
   try {
-    // 1. Try secure RPC first
+    // 1. Try dedicated toggle RPC first (preserves existing password)
     try {
-      const { error: rpcErr } = await supabase.rpc('admin_update_memories_security', {
-        p_is_locked: isLocked,
-        p_passcode_hash: finalHash
+      const { error: rpcErr } = await supabase.rpc('admin_toggle_memories_lock', {
+        p_is_locked: isLocked
       });
       if (!rpcErr) return true;
+    } catch {
+      // Fallback
+    }
+
+    // 2. Try general update RPC
+    try {
+      const { error: rpcErr2 } = await supabase.rpc('admin_update_memories_security', {
+        p_is_locked: isLocked,
+        p_passcode_hash: passcodeHash || null
+      });
+      if (!rpcErr2) return true;
     } catch {
       // Fallback to table upsert
     }
 
-    // 2. Direct table upsert fallback
+    // 3. Direct table upsert fallback: fetch existing hash first to never overwrite with default!
+    let existingHash = passcodeHash;
+    if (!existingHash) {
+      const { data: existingData } = await supabase
+        .from('app_settings')
+        .select('value')
+        .eq('key', 'memories_lock')
+        .maybeSingle();
+
+      if (existingData?.value?.passcode_hash) {
+        existingHash = existingData.value.passcode_hash;
+      } else {
+        existingHash = (typeof localStorage !== 'undefined' && localStorage.getItem('friend_os_memories_passcode_hash')) || DEFAULT_PASSCODE_HASH;
+      }
+    }
+
     const payload: any = {
       is_locked: isLocked,
-      passcode_hash: finalHash
+      passcode_hash: existingHash
     };
 
     const upsertObj: any = {
@@ -152,26 +184,50 @@ export async function updateMemoryLockInSupabase(
 export async function updateMemoryPasscodeInSupabase(
   newPasscodeHash: string,
   adminUserId?: string,
-  currentIsLocked: boolean = true
+  currentIsLocked?: boolean
 ): Promise<boolean> {
   if (!isSupabaseConfigured || !supabase) return false;
 
+  const cleanHash = newPasscodeHash.trim().toLowerCase();
+
   try {
-    // 1. Try secure RPC first
+    // 1. Try dedicated set passcode RPC
     try {
-      const { error: rpcErr } = await supabase.rpc('admin_update_memories_security', {
-        p_is_locked: currentIsLocked,
-        p_passcode_hash: newPasscodeHash
+      const { error: rpcErr } = await supabase.rpc('admin_set_memories_passcode', {
+        p_passcode_hash: cleanHash
       });
       if (!rpcErr) return true;
     } catch {
       // Fallback
     }
 
-    // 2. Direct table upsert fallback
+    // 2. Try general update RPC
+    try {
+      const effectiveLocked = currentIsLocked !== undefined ? currentIsLocked : true;
+      const { error: rpcErr2 } = await supabase.rpc('admin_update_memories_security', {
+        p_is_locked: effectiveLocked,
+        p_passcode_hash: cleanHash
+      });
+      if (!rpcErr2) return true;
+    } catch {
+      // Fallback to table upsert
+    }
+
+    // 3. Direct table upsert fallback
+    let lockState = currentIsLocked;
+    if (lockState === undefined) {
+      const { data: existingData } = await supabase
+        .from('app_settings')
+        .select('value')
+        .eq('key', 'memories_lock')
+        .maybeSingle();
+
+      lockState = existingData?.value?.is_locked !== undefined ? Boolean(existingData.value.is_locked) : true;
+    }
+
     const payload: any = {
-      is_locked: currentIsLocked,
-      passcode_hash: newPasscodeHash
+      is_locked: lockState,
+      passcode_hash: cleanHash
     };
 
     const upsertObj: any = {

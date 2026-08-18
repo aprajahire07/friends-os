@@ -8,7 +8,8 @@ import {
   BarChart3,
   ShieldAlert,
   ArrowLeft,
-  Sparkles
+  Sparkles,
+  FileText
 } from 'lucide-react';
 import { appStore, useAppStore } from '../../lib/store';
 import { UserManagementView } from './UserManagementView';
@@ -16,13 +17,14 @@ import { MemoriesSecurityView } from './MemoriesSecurityView';
 import { MoneyHistoryView } from './MoneyHistoryView';
 import { PasswordManagementView } from './PasswordManagementView';
 import { SystemOverviewView } from './SystemOverviewView';
+import { AdminNotesManagementView } from './AdminNotesManagementView';
 import { FRIEND_OS_ADMIN_EMAIL } from '../../services/appSettings';
 
 interface AdminDashboardProps {
   onBackToHome?: () => void;
 }
 
-type AdminTab = 'users' | 'memories' | 'money' | 'passwords' | 'overview';
+type AdminTab = 'users' | 'memories' | 'notes' | 'money' | 'passwords' | 'overview';
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToHome }) => {
   useAppStore();
@@ -59,6 +61,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToHome }) 
 
   const tabs = [
     { id: 'users' as AdminTab, label: 'User Management', icon: Users },
+    { id: 'notes' as AdminTab, label: 'Notes Master Access', icon: FileText },
     { id: 'memories' as AdminTab, label: 'Memories Security', icon: Lock },
     { id: 'money' as AdminTab, label: 'Money History', icon: Wallet },
     { id: 'passwords' as AdminTab, label: 'Password Management', icon: KeyRound },
@@ -88,7 +91,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToHome }) 
               <span>⚙️ Admin Control Center</span>
             </h2>
             <p className="text-xs text-slate-300">
-              Manage accounts, enforce memories lock, review audit logs, and oversee FRIEND OS security.
+              Manage accounts, oversee group study notes with Master Access, enforce memories lock, and review FRIEND OS audit logs.
             </p>
           </div>
 
@@ -129,6 +132,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToHome }) 
       {/* Main Tab Content View */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl">
         {activeAdminTab === 'users' && <UserManagementView />}
+        {activeAdminTab === 'notes' && <AdminNotesManagementView />}
         {activeAdminTab === 'memories' && <MemoriesSecurityView />}
         {activeAdminTab === 'money' && <MoneyHistoryView />}
         {activeAdminTab === 'passwords' && <PasswordManagementView />}

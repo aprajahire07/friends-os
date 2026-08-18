@@ -733,8 +733,19 @@ CREATE POLICY "App settings write" ON public.app_settings FOR ALL
 
 -- Default Seed for Memories Lock (Locked by default, default passcode 0000 sha256)
 INSERT INTO public.app_settings (key, value)
-VALUES ('memories_lock', '{"is_locked": true, "passcode_hash": "4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a"}'::jsonb)
-ON CONFLICT (key) DO NOTHING;
+VALUES ('memories_lock', '{"is_locked": true, "passcode_hash": "9af15b336e6a9619928537df30b2e6a2376569fcf9d7e773eccede65606529a0"}'::jsonb)
+ON CONFLICT (key) DO UPDATE
+SET value = jsonb_set(
+  public.app_settings.value,
+  '{passcode_hash}',
+  to_jsonb(
+    CASE 
+      WHEN (public.app_settings.value->>'passcode_hash') = '4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a' 
+      THEN '9af15b336e6a9619928537df30b2e6a2376569fcf9d7e773eccede65606529a0'
+      ELSE COALESCE(public.app_settings.value->>'passcode_hash', '9af15b336e6a9619928537df30b2e6a2376569fcf9d7e773eccede65606529a0')
+    END
+  )
+);
 
 -- Secure verification RPC function: verifies SHA-256 hash without exposing the stored hash
 CREATE OR REPLACE FUNCTION public.verify_memories_passcode(p_passcode_hash TEXT)
@@ -744,42 +755,140 @@ SECURITY DEFINER
 AS $$
 DECLARE
   v_stored_hash TEXT;
+  v_input_hash TEXT;
 BEGIN
+  v_input_hash := LOWER(TRIM(p_passcode_hash));
+  
   SELECT (value->>'passcode_hash') INTO v_stored_hash
   FROM public.app_settings
   WHERE key = 'memories_lock';
   
-  IF v_stored_hash IS NULL THEN
-    v_stored_hash := '4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a';
+  IF v_stored_hash IS NULL OR v_stored_hash = '' THEN
+    v_stored_hash := '9af15b336e6a9619928537df30b2e6a2376569fcf9d7e773eccede65606529a0';
+  END IF;
+
+  v_stored_hash := LOWER(TRIM(v_stored_hash));
+  
+  -- Handle matching including legacy hash fallback for 0000
+  IF v_input_hash = v_stored_hash THEN
+    RETURN TRUE;
+  ELSIF (v_input_hash = '9af15b336e6a9619928537df30b2e6a2376569fcf9d7e773eccede65606529a0' OR v_input_hash = '4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a')
+        AND (v_stored_hash = '9af15b336e6a9619928537df30b2e6a2376569fcf9d7e773eccede65606529a0' OR v_stored_hash = '4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a') THEN
+    RETURN TRUE;
   END IF;
   
-  RETURN (p_passcode_hash = v_stored_hash);
+  RETURN FALSE;
 END;
 $$;
 
--- Secure admin update RPC function: updates lock state and/or hash
-CREATE OR REPLACE FUNCTION public.admin_update_memories_security(
-  p_is_locked BOOLEAN,
-  p_passcode_hash TEXT
-)
+-- Dedicated RPC to safely toggle lock without altering the existing passcode
+CREATE OR REPLACE FUNCTION public.admin_toggle_memories_lock(p_is_locked BOOLEAN)
 RETURNS BOOLEAN
 LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
+DECLARE
+  v_current_hash TEXT;
 BEGIN
+  SELECT (value->>'passcode_hash') INTO v_current_hash
+  FROM public.app_settings
+  WHERE key = 'memories_lock';
+
+  IF v_current_hash IS NULL OR v_current_hash = '' THEN
+    v_current_hash := '9af15b336e6a9619928537df30b2e6a2376569fcf9d7e773eccede65606529a0';
+  END IF;
+
   INSERT INTO public.app_settings (key, value, updated_at)
   VALUES (
     'memories_lock',
-    jsonb_build_object('is_locked', p_is_locked, 'passcode_hash', p_passcode_hash),
+    jsonb_build_object('is_locked', p_is_locked, 'passcode_hash', v_current_hash),
     NOW()
   )
   ON CONFLICT (key) DO UPDATE
-  SET value = jsonb_build_object('is_locked', p_is_locked, 'passcode_hash', p_passcode_hash),
+  SET value = jsonb_build_object('is_locked', p_is_locked, 'passcode_hash', v_current_hash),
       updated_at = NOW();
       
   RETURN TRUE;
 END;
 $$;
+
+-- Dedicated RPC to safely set the passcode without altering lock state
+CREATE OR REPLACE FUNCTION public.admin_set_memories_passcode(p_passcode_hash TEXT)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_current_lock BOOLEAN;
+  v_clean_hash TEXT;
+BEGIN
+  v_clean_hash := LOWER(TRIM(p_passcode_hash));
+
+  SELECT COALESCE((value->>'is_locked')::boolean, true) INTO v_current_lock
+  FROM public.app_settings
+  WHERE key = 'memories_lock';
+
+  IF v_current_lock IS NULL THEN
+    v_current_lock := true;
+  END IF;
+
+  INSERT INTO public.app_settings (key, value, updated_at)
+  VALUES (
+    'memories_lock',
+    jsonb_build_object('is_locked', v_current_lock, 'passcode_hash', v_clean_hash),
+    NOW()
+  )
+  ON CONFLICT (key) DO UPDATE
+  SET value = jsonb_build_object('is_locked', v_current_lock, 'passcode_hash', v_clean_hash),
+      updated_at = NOW();
+      
+  RETURN TRUE;
+END;
+$$;
+
+-- Secure admin update RPC function: updates lock state and/or hash preserving existing fields if omitted
+CREATE OR REPLACE FUNCTION public.admin_update_memories_security(
+  p_is_locked BOOLEAN,
+  p_passcode_hash TEXT DEFAULT NULL
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_final_hash TEXT;
+BEGIN
+  IF p_passcode_hash IS NOT NULL AND TRIM(p_passcode_hash) <> '' THEN
+    v_final_hash := LOWER(TRIM(p_passcode_hash));
+  ELSE
+    SELECT (value->>'passcode_hash') INTO v_final_hash
+    FROM public.app_settings
+    WHERE key = 'memories_lock';
+    
+    IF v_final_hash IS NULL OR v_final_hash = '' THEN
+      v_final_hash := '9af15b336e6a9619928537df30b2e6a2376569fcf9d7e773eccede65606529a0';
+    END IF;
+  END IF;
+
+  INSERT INTO public.app_settings (key, value, updated_at)
+  VALUES (
+    'memories_lock',
+    jsonb_build_object('is_locked', p_is_locked, 'passcode_hash', v_final_hash),
+    NOW()
+  )
+  ON CONFLICT (key) DO UPDATE
+  SET value = jsonb_build_object('is_locked', p_is_locked, 'passcode_hash', v_final_hash),
+      updated_at = NOW();
+      
+  RETURN TRUE;
+END;
+$$;
+
+-- Grant execution permissions
+GRANT EXECUTE ON FUNCTION public.verify_memories_passcode(TEXT) TO authenticated, anon;
+GRANT EXECUTE ON FUNCTION public.admin_toggle_memories_lock(BOOLEAN) TO authenticated, anon;
+GRANT EXECUTE ON FUNCTION public.admin_set_memories_passcode(TEXT) TO authenticated, anon;
+GRANT EXECUTE ON FUNCTION public.admin_update_memories_security(BOOLEAN, TEXT) TO authenticated, anon;
 
 -- Enable Realtime for App Settings, Snaps, and Snap Recipients
 ALTER PUBLICATION supabase_realtime ADD TABLE public.app_settings;

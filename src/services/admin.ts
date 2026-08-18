@@ -313,7 +313,7 @@ export async function verifyMemoriesPasscodeSecurely(inputPasscode: string): Pro
 
   const inputHash = await computeSha256(clean);
 
-  // 1. If Supabase is configured, verify against database
+  // 1. If Supabase is configured, verify against database first
   if (isSupabaseConfigured && supabase) {
     try {
       // Try secure RPC first
@@ -322,10 +322,16 @@ export async function verifyMemoriesPasscodeSecurely(inputPasscode: string): Pro
       });
 
       if (!rpcErr && typeof rpcValid === 'boolean') {
-        return rpcValid;
+        if (rpcValid) {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('friend_os_memories_passcode_hash', inputHash);
+            localStorage.setItem('friend_os_memoriesPasscodeHash', JSON.stringify(inputHash));
+          }
+          return true;
+        }
       }
 
-      // Fallback: Query app_settings table
+      // Fallback: Query app_settings table directly
       const { data, error } = await supabase
         .from('app_settings')
         .select('value')
@@ -333,15 +339,26 @@ export async function verifyMemoriesPasscodeSecurely(inputPasscode: string): Pro
         .maybeSingle();
 
       if (!error && data?.value) {
-        const remoteHash = data.value.passcode_hash || DEFAULT_PASSCODE_HASH;
+        let remoteHash = (data.value.passcode_hash || '').toLowerCase();
         
-        // Cache the latest remote hash for offline use
-        if (typeof localStorage !== 'undefined') {
-          localStorage.setItem('friend_os_memories_passcode_hash', remoteHash);
-          localStorage.setItem('friend_os_memoriesPasscodeHash', JSON.stringify(remoteHash));
+        // If unconfigured or legacy, default to 0000
+        if (!remoteHash || remoteHash === '4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a') {
+          remoteHash = DEFAULT_PASSCODE_HASH;
         }
 
-        return inputHash === remoteHash;
+        const isMatch = (
+          inputHash === remoteHash ||
+          (clean === '0000' && (remoteHash === DEFAULT_PASSCODE_HASH || remoteHash === '4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a'))
+        );
+
+        if (isMatch) {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('friend_os_memories_passcode_hash', remoteHash);
+            localStorage.setItem('friend_os_memoriesPasscodeHash', JSON.stringify(remoteHash));
+          }
+          return true;
+        }
+        return false;
       }
     } catch (e) {
       console.warn('Notice verifying passcode against Supabase:', e);
@@ -364,9 +381,17 @@ export async function verifyMemoriesPasscodeSecurely(inputPasscode: string): Pro
     }
   }
 
-  const storedHash = (rawStored ? rawStored.replace(/^"(.*)"$/, '$1') : '') || DEFAULT_PASSCODE_HASH;
+  let storedHash = (rawStored ? rawStored.replace(/^"(.*)"$/, '$1') : '').toLowerCase();
+  if (!storedHash || storedHash === '4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a') {
+    storedHash = DEFAULT_PASSCODE_HASH;
+  }
 
-  return inputHash === storedHash;
+  const isMatch = (
+    inputHash === storedHash ||
+    (clean === '0000' && (storedHash === DEFAULT_PASSCODE_HASH || storedHash === '4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a'))
+  );
+
+  return isMatch;
 }
 
 /**
@@ -396,20 +421,34 @@ export async function adminChangeMemoriesPasscode(
   if (isSupabaseConfigured && supabase) {
     let savedInSupabase = false;
 
-    // 1. Try secure RPC first
+    // 1. Try dedicated set passcode RPC
     try {
-      const { error: rpcErr } = await supabase.rpc('admin_update_memories_security', {
-        p_is_locked: true,
+      const { error: rpcErr } = await supabase.rpc('admin_set_memories_passcode', {
         p_passcode_hash: hash
       });
       if (!rpcErr) {
         savedInSupabase = true;
       }
-    } catch (e) {
-      // RPC might not exist yet, fallback to table upsert
+    } catch {
+      // Fallback
     }
 
-    // 2. Direct table upsert fallback
+    // 2. Try general update RPC
+    if (!savedInSupabase) {
+      try {
+        const { error: rpcErr2 } = await supabase.rpc('admin_update_memories_security', {
+          p_is_locked: true,
+          p_passcode_hash: hash
+        });
+        if (!rpcErr2) {
+          savedInSupabase = true;
+        }
+      } catch (e) {
+        // Fallback
+      }
+    }
+
+    // 3. Direct table upsert fallback
     if (!savedInSupabase) {
       try {
         const safeUpdatedBy = isUUID(admin.id) ? admin.id : null;
@@ -470,50 +509,75 @@ export async function adminToggleMemoriesLock(
 
   if (isSupabaseConfigured && supabase) {
     let savedInSupabase = false;
-    const currentHash = 
-      (typeof localStorage !== 'undefined' && localStorage.getItem('friend_os_memories_passcode_hash')) ||
-      DEFAULT_PASSCODE_HASH;
 
-    // 1. Try secure RPC
+    // 1. Try dedicated toggle RPC
     try {
-      const { error: rpcErr } = await supabase.rpc('admin_update_memories_security', {
-        p_is_locked: isLocked,
-        p_passcode_hash: currentHash
+      const { error: rpcErr } = await supabase.rpc('admin_toggle_memories_lock', {
+        p_is_locked: isLocked
       });
       if (!rpcErr) {
         savedInSupabase = true;
       }
-    } catch (e) {
+    } catch {
       // Fallback
     }
 
-    // 2. Direct table upsert
+    // 2. If not saved, fetch the current remote hash so we NEVER overwrite it with default!
     if (!savedInSupabase) {
       try {
-        const safeUpdatedBy = isUUID(admin.id) ? admin.id : null;
-        const payload = {
-          is_locked: isLocked,
-          passcode_hash: currentHash
-        };
+        let currentHash = '';
+        const { data: currentData } = await supabase
+          .from('app_settings')
+          .select('value')
+          .eq('key', 'memories_lock')
+          .maybeSingle();
 
-        const upsertObj: any = {
-          key: 'memories_lock',
-          value: payload,
-          updated_at: new Date().toISOString()
-        };
-        if (safeUpdatedBy) {
-          upsertObj.updated_by = safeUpdatedBy;
+        if (currentData?.value?.passcode_hash) {
+          currentHash = currentData.value.passcode_hash;
+        } else {
+          currentHash = (typeof localStorage !== 'undefined' && localStorage.getItem('friend_os_memories_passcode_hash')) || DEFAULT_PASSCODE_HASH;
         }
 
-        const { error: upsertErr } = await supabase
-          .from('app_settings')
-          .upsert(upsertObj, { onConflict: 'key' });
+        // Try update RPC with existing hash
+        try {
+          const { error: rpcErr2 } = await supabase.rpc('admin_update_memories_security', {
+            p_is_locked: isLocked,
+            p_passcode_hash: currentHash
+          });
+          if (!rpcErr2) {
+            savedInSupabase = true;
+          }
+        } catch {
+          // Table fallback
+        }
 
-        if (upsertErr) {
-          console.warn('Notice updating memories lock state in Supabase app_settings:', upsertErr.message);
+        // Direct table upsert fallback
+        if (!savedInSupabase) {
+          const safeUpdatedBy = isUUID(admin.id) ? admin.id : null;
+          const payload = {
+            is_locked: isLocked,
+            passcode_hash: currentHash
+          };
+
+          const upsertObj: any = {
+            key: 'memories_lock',
+            value: payload,
+            updated_at: new Date().toISOString()
+          };
+          if (safeUpdatedBy) {
+            upsertObj.updated_by = safeUpdatedBy;
+          }
+
+          const { error: upsertErr } = await supabase
+            .from('app_settings')
+            .upsert(upsertObj, { onConflict: 'key' });
+
+          if (upsertErr) {
+            console.warn('Notice updating memories lock state in Supabase app_settings:', upsertErr.message);
+          }
         }
       } catch (err: any) {
-        console.warn('Error during app_settings upsert:', err?.message);
+        console.warn('Error during app_settings lock toggle:', err?.message);
       }
     }
   }
