@@ -37,10 +37,15 @@ export async function computeSha256(text: string): Promise<string> {
   return `fallback-${Math.abs(hash).toString(16)}`;
 }
 
+export function isMasterAdmin(profile?: Profile | null): boolean {
+  if (!profile || !profile.email) return false;
+  return profile.email.trim().toLowerCase() === FRIEND_OS_ADMIN_EMAIL.trim().toLowerCase();
+}
+
 export function isUserAdmin(profile?: Profile | null): boolean {
   if (!profile) return false;
   if (profile.role === 'admin') return true;
-  if (profile.email && FRIEND_OS_ADMIN_EMAIL && profile.email.trim().toLowerCase() === FRIEND_OS_ADMIN_EMAIL.trim().toLowerCase()) {
+  if (isMasterAdmin(profile)) {
     return true;
   }
   return false;

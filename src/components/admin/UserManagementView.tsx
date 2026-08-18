@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { 
   Users, 
   ShieldAlert, 
+  Shield,
+  User,
   CheckCircle, 
   Search, 
   UserX, 
@@ -17,7 +19,7 @@ import {
 import { Profile } from '../../types';
 import { appStore, useAppStore } from '../../lib/store';
 import { useToast } from '../ui/Toast';
-import { FRIEND_OS_ADMIN_EMAIL } from '../../services/appSettings';
+import { FRIEND_OS_ADMIN_EMAIL, isMasterAdmin } from '../../services/appSettings';
 import { Avatar } from '../ui/Avatar';
 
 export const UserManagementView: React.FC = () => {
@@ -26,6 +28,7 @@ export const UserManagementView: React.FC = () => {
   
   const currentUser = appStore.currentUser;
   const profiles = appStore.profiles;
+  const isCurrentMasterAdmin = isMasterAdmin(currentUser);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'banned'>('all');
@@ -42,6 +45,7 @@ export const UserManagementView: React.FC = () => {
   const [editUsername, setEditUsername] = useState('');
   const [editBirthday, setEditBirthday] = useState('');
   const [editCollege, setEditCollege] = useState('');
+  const [editRole, setEditRole] = useState<'admin' | 'member'>('member');
 
   const handleOpenEditUser = (profile: Profile) => {
     setUserToEdit(profile);
@@ -49,6 +53,7 @@ export const UserManagementView: React.FC = () => {
     setEditUsername(profile.username);
     setEditBirthday(profile.birthday || '2004-09-15');
     setEditCollege(profile.college || 'GHRCEMN');
+    setEditRole(profile.role === 'admin' ? 'admin' : 'member');
   };
 
   const handleSaveUserEdit = async () => {
@@ -56,13 +61,24 @@ export const UserManagementView: React.FC = () => {
     setIsProcessing(true);
 
     try {
-      await appStore.adminUpdateUserProfile(userToEdit.id, {
+      const updatePayload: Partial<Profile> = {
         full_name: editFullName.trim(),
         username: editUsername.trim().toLowerCase() || userToEdit.username,
         birthday: editBirthday.trim() || userToEdit.birthday,
         college: editCollege.trim() || userToEdit.college
-      });
-      showToast('Profile Updated! ✅', `${editFullName}'s details (Name, Username, Birthday, College) have been updated across the network.`, 'success');
+      };
+
+      // Only Master Admin can assign or change roles
+      if (isCurrentMasterAdmin && !isMasterAdmin(userToEdit)) {
+        updatePayload.role = editRole;
+      }
+
+      await appStore.adminUpdateUserProfile(userToEdit.id, updatePayload);
+      showToast(
+        'Profile Updated! ✅', 
+        `${editFullName}'s details ${isCurrentMasterAdmin ? `(Role: ${editRole.toUpperCase()}) ` : ''}have been updated across the network.`, 
+        'success'
+      );
       setUserToEdit(null);
     } catch (e: any) {
       showToast('Update Failed', e?.message || 'Could not update user profile.', 'error');
@@ -239,9 +255,17 @@ export const UserManagementView: React.FC = () => {
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <h4 className="text-sm font-bold text-white">{profile.full_name}</h4>
-                      {isMasterAdmin && (
-                        <span className="px-2 py-0.5 rounded-full bg-indigo-950 border border-indigo-700 text-indigo-300 font-extrabold text-[9px] uppercase">
+                      {isMasterAdmin ? (
+                        <span className="px-2 py-0.5 rounded-full bg-indigo-950 border border-indigo-700 text-indigo-300 font-extrabold text-[9px] uppercase flex items-center gap-1">
                           ⚙️ Master Admin
+                        </span>
+                      ) : profile.role === 'admin' ? (
+                        <span className="px-2 py-0.5 rounded-full bg-violet-950 border border-violet-700 text-violet-300 font-extrabold text-[9px] uppercase flex items-center gap-1">
+                          🛡️ Admin
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full bg-slate-900 border border-slate-700 text-slate-400 font-semibold text-[9px] uppercase">
+                          👤 Member
                         </span>
                       )}
                       {isBanned ? (
@@ -285,6 +309,10 @@ export const UserManagementView: React.FC = () => {
                   {isMasterAdmin ? (
                     <span className="text-[11px] text-indigo-400 font-semibold px-3 py-1.5 rounded-xl bg-indigo-950/40 border border-indigo-900">
                       System Protected
+                    </span>
+                  ) : (profile.role === 'admin' && !isCurrentMasterAdmin) ? (
+                    <span className="text-[11px] text-violet-400 font-semibold px-3 py-1.5 rounded-xl bg-violet-950/40 border border-violet-900">
+                      Admin Protected
                     </span>
                   ) : isBanned ? (
                     <button
@@ -384,6 +412,62 @@ export const UserManagementView: React.FC = () => {
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
                 />
               </div>
+
+              {/* Master Admin Exclusive: Role Assignment (Normal User vs Admin) */}
+              {isCurrentMasterAdmin && (
+                <div className="pt-2 border-t border-slate-800/80">
+                  <label className="block text-xs font-bold text-slate-300 mb-1.5 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <Shield className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>Account Role & Access</span>
+                    </span>
+                    <span className="text-[10px] text-indigo-400 font-extrabold uppercase bg-indigo-950/80 px-2 py-0.5 rounded-full border border-indigo-800">
+                      Master Control Only
+                    </span>
+                  </label>
+
+                  {isMasterAdmin(userToEdit) ? (
+                    <div className="p-2.5 rounded-xl bg-indigo-950/40 border border-indigo-800/60 text-xs text-indigo-300 font-semibold flex items-center gap-2">
+                      <Shield className="w-4 h-4 text-indigo-400 shrink-0" />
+                      <span>Master Administrator (Permanent Root Access)</span>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditRole('member')}
+                        className={`p-2.5 rounded-xl border text-left transition-all flex items-center gap-2.5 ${
+                          editRole === 'member'
+                            ? 'bg-slate-800 border-indigo-500 text-white shadow-md'
+                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <User className={`w-4 h-4 ${editRole === 'member' ? 'text-indigo-400' : 'text-slate-500'}`} />
+                        <div>
+                          <div className="text-xs font-bold">Normal User</div>
+                          <div className="text-[10px] opacity-70">Member access</div>
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setEditRole('admin')}
+                        className={`p-2.5 rounded-xl border text-left transition-all flex items-center gap-2.5 ${
+                          editRole === 'admin'
+                            ? 'bg-indigo-950/90 border-indigo-500 text-indigo-200 shadow-md shadow-indigo-950/50'
+                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <Shield className={`w-4 h-4 ${editRole === 'admin' ? 'text-indigo-400' : 'text-slate-500'}`} />
+                        <div>
+                          <div className="text-xs font-bold">Administrator</div>
+                          <div className="text-[10px] opacity-70">Admin access</div>
+                        </div>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="flex items-center gap-2 pt-3">

@@ -72,6 +72,7 @@ import {
   updateMemoryPasscodeInSupabase, 
   computeSha256, 
   isUserAdmin, 
+  isMasterAdmin,
   DEFAULT_PASSCODE_HASH,
   fetchProfileOverridesFromSupabase,
   updateProfileOverrideInSupabase
@@ -2219,25 +2220,41 @@ export const appStore = {
       throw new Error('Target user not found.');
     }
 
+    const sanitizedUpdates = { ...updates };
+
+    // Security check: Only Master Admin can change user roles
+    if (sanitizedUpdates.role !== undefined) {
+      const isCallerMasterAdmin = isMasterAdmin(this.currentUser);
+      const isTargetMasterAdmin = isMasterAdmin(targetUser);
+
+      if (!isCallerMasterAdmin) {
+        // Non-master admins cannot modify roles at all
+        delete sanitizedUpdates.role;
+      } else if (isTargetMasterAdmin && sanitizedUpdates.role !== 'admin') {
+        // Master admin cannot demote themselves from admin
+        delete sanitizedUpdates.role;
+      }
+    }
+
     // 1. Update locally first for instant UI response
     this.profiles = this.profiles.map(p => 
-      p.id === targetUserId ? { ...p, ...updates } : p
+      p.id === targetUserId ? { ...p, ...sanitizedUpdates } : p
     );
     if (this.currentUser && this.currentUser.id === targetUserId) {
-      this.currentUser = { ...this.currentUser, ...updates };
+      this.currentUser = { ...this.currentUser, ...sanitizedUpdates };
       saveState('currentUser', this.currentUser);
     }
     saveState('profiles', this.profiles);
 
     // Update messages sender references if full_name / avatar changed
-    if (updates.full_name || updates.avatar_url || updates.username) {
+    if (sanitizedUpdates.full_name || sanitizedUpdates.avatar_url || sanitizedUpdates.username) {
       this.messages = this.messages.map(m => {
         if (m.sender_id === targetUserId) {
           return {
             ...m,
             sender: {
               ...(m.sender || targetUser),
-              ...updates
+              ...sanitizedUpdates
             }
           };
         }
@@ -2253,10 +2270,10 @@ export const appStore = {
       updateProfileOverrideInSupabase(
         targetUserId, 
         targetUser.email, 
-        updates, 
+        sanitizedUpdates, 
         this.currentUser?.id
       ),
-      updateProfileInSupabase(targetUserId, updates)
+      updateProfileInSupabase(targetUserId, sanitizedUpdates)
     ]);
 
     return true;
