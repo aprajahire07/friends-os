@@ -262,16 +262,11 @@ CREATE TABLE IF NOT EXISTS public.memories (
   creator_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   caption TEXT NOT NULL,
-  youtube_url TEXT,
-  youtube_video_id TEXT,
   memory_date DATE NOT NULL,
   location TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
-
-ALTER TABLE public.memories ADD COLUMN IF NOT EXISTS youtube_url TEXT;
-ALTER TABLE public.memories ADD COLUMN IF NOT EXISTS youtube_video_id TEXT;
 
 CREATE TABLE IF NOT EXISTS public.memory_photos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1189,39 +1184,5 @@ DROP TRIGGER IF EXISTS tr_push_subscriptions_updated_at ON public.push_subscript
 CREATE TRIGGER tr_push_subscriptions_updated_at
 BEFORE UPDATE ON public.push_subscriptions
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
--- ==============================================================================
--- 16. SERVER-SIDE NOTIFICATION EVENTS TABLE & QUEUE
--- ==============================================================================
-CREATE TABLE IF NOT EXISTS public.notification_events (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  event_type TEXT NOT NULL, -- 'snap', 'chat', 'money', 'borrowed', 'split_money', 'plan', 'note', 'memory'
-  source_id TEXT,           -- id of snap, message, expense, loan, plan, note, memory
-  actor_user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-  recipient_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  payload JSONB NOT NULL,   -- title, body, section, icon, badge, image, tag, url, data
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'processed', 'failed')),
-  error_message TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  processed_at TIMESTAMPTZ,
-  CONSTRAINT uq_event_source_recipient UNIQUE (event_type, source_id, recipient_user_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_notification_events_status_created ON public.notification_events(status, created_at);
-CREATE INDEX IF NOT EXISTS idx_notification_events_recipient ON public.notification_events(recipient_user_id);
-CREATE INDEX IF NOT EXISTS idx_notification_events_actor ON public.notification_events(actor_user_id);
-
-ALTER TABLE public.notification_events ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "Auth users can insert notification events" ON public.notification_events;
-CREATE POLICY "Auth users can insert notification events"
-ON public.notification_events FOR INSERT
-WITH CHECK (auth.role() = 'authenticated');
-
-DROP POLICY IF EXISTS "Users can view their related notification events" ON public.notification_events;
-CREATE POLICY "Users can view their related notification events"
-ON public.notification_events FOR SELECT
-USING (auth.uid() = actor_user_id OR auth.uid() = recipient_user_id);
-
 
 

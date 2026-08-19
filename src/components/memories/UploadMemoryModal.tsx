@@ -13,16 +13,11 @@ import {
   Trash2, 
   CheckCircle2, 
   UploadCloud,
-  Sparkles,
-  Video,
-  Play,
-  ExternalLink,
-  Youtube
+  Sparkles
 } from 'lucide-react';
 import { appStore, useAppStore } from '../../lib/store';
 import { useToast } from '../ui/Toast';
-import { validateUploadFile, uploadFileToStorage } from '../../services/storage';
-import { extractYouTubeVideoId, isValidYouTubeUrl, getYouTubeThumbnailUrl, getYouTubeEmbedUrl } from '../../lib/youtube';
+import { validateUploadFile, uploadFileToStorage, getSyncMediaUrl } from '../../services/storage';
 
 interface UploadMemoryModalProps {
   isOpen: boolean;
@@ -52,41 +47,12 @@ export const UploadMemoryModal: React.FC<UploadMemoryModalProps> = ({ isOpen, on
   const [location, setLocation] = useState('');
   const [taggedUserIds, setTaggedUserIds] = useState<string[]>([]);
   const [photoItems, setPhotoItems] = useState<PhotoUploadItem[]>([]);
-  
-  // Optional YouTube Video State
-  const [showYouTubeSection, setShowYouTubeSection] = useState(false);
-  const [youtubeInputUrl, setYoutubeInputUrl] = useState('');
-  const [youtubeError, setYoutubeError] = useState<string | null>(null);
-
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
-
-  const extractedYtId = extractYouTubeVideoId(youtubeInputUrl);
-  const hasValidYouTube = Boolean(extractedYtId);
-
-  const handleYouTubeInputChange = (val: string) => {
-    setYoutubeInputUrl(val);
-    if (!val.trim()) {
-      setYoutubeError(null);
-    } else {
-      const vidId = extractYouTubeVideoId(val);
-      if (!vidId) {
-        setYoutubeError('Please enter a valid YouTube video link (watch, shorts, or youtu.be).');
-      } else {
-        setYoutubeError(null);
-      }
-    }
-  };
-
-  const handleRemoveYouTube = () => {
-    setYoutubeInputUrl('');
-    setYoutubeError(null);
-    setShowYouTubeSection(false);
-  };
 
   const handleFilesSelected = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -220,14 +186,8 @@ export const UploadMemoryModal: React.FC<UploadMemoryModalProps> = ({ isOpen, on
       return;
     }
 
-    // Must have at least 1 photo OR 1 YouTube video
-    if (photoItems.length === 0 && !hasValidYouTube) {
-      setErrorMsg('Please select at least one photo or add a YouTube video for this memory.');
-      return;
-    }
-
-    if (youtubeInputUrl.trim() && !hasValidYouTube) {
-      setErrorMsg('Please enter a valid YouTube video link or clear the YouTube field.');
+    if (photoItems.length === 0) {
+      setErrorMsg('Please select at least one photo for this memory.');
       return;
     }
 
@@ -249,36 +209,28 @@ export const UploadMemoryModal: React.FC<UploadMemoryModalProps> = ({ isOpen, on
       .map(p => p.storagePath)
       .filter((p): p is string => Boolean(p));
 
-    if (photoItems.length > 0 && validPaths.length === 0 && !hasValidYouTube) {
-      setErrorMsg('No valid uploaded photos found. Please upload photos or add a YouTube video.');
+    if (validPaths.length === 0) {
+      setErrorMsg('No valid uploaded photos found. Please upload photos.');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      const finalYtUrl = hasValidYouTube && extractedYtId ? `https://www.youtube.com/watch?v=${extractedYtId}` : null;
       const res = await appStore.addMemory(
         title.trim(),
         caption.trim(),
         validPaths,
         date,
         location.trim(),
-        taggedUserIds,
-        finalYtUrl,
-        extractedYtId
+        taggedUserIds
       );
 
       if (res && res.success) {
-        let msg = `Published "${title}"`;
-        if (validPaths.length > 0 && hasValidYouTube) {
-          msg += ` with ${validPaths.length} photos and YouTube video.`;
-        } else if (hasValidYouTube) {
-          msg += ` with YouTube video.`;
-        } else {
-          msg += ` with ${validPaths.length} photos.`;
-        }
-
-        showToast('Memory Created!', msg, 'success');
+        showToast(
+          'Memory Created!', 
+          `Published "${title}" with ${validPaths.length} photos to shared timeline.`, 
+          'success'
+        );
         onClose();
       } else {
         setErrorMsg(res?.error || 'Failed to save memory to database.');
@@ -293,7 +245,6 @@ export const UploadMemoryModal: React.FC<UploadMemoryModalProps> = ({ isOpen, on
   const hasUploading = photoItems.some(p => p.status === 'uploading');
   const hasErrors = photoItems.some(p => p.status === 'error');
   const allSuccess = photoItems.length > 0 && photoItems.every(p => p.status === 'success');
-  const canSubmit = (photoItems.length > 0 || hasValidYouTube) && !hasUploading && !hasErrors && (!youtubeInputUrl.trim() || hasValidYouTube);
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
@@ -313,7 +264,7 @@ export const UploadMemoryModal: React.FC<UploadMemoryModalProps> = ({ isOpen, on
           </div>
           <div>
             <h3 className="text-base font-bold text-white">Create Group Memory</h3>
-            <p className="text-xs text-slate-400">Share photos and optional YouTube video under one group memory</p>
+            <p className="text-xs text-slate-400">One memory post containing multiple photos under one caption</p>
           </div>
         </div>
 
@@ -338,7 +289,7 @@ export const UploadMemoryModal: React.FC<UploadMemoryModalProps> = ({ isOpen, on
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-xs font-semibold text-slate-300">
-                Photos {hasValidYouTube ? '(Optional)' : <span className="text-rose-400">*</span>} ({photoItems.length}/15)
+                Photos <span className="text-rose-400">*</span> ({photoItems.length}/15)
               </label>
               {photoItems.length > 0 && (
                 <button
@@ -369,10 +320,10 @@ export const UploadMemoryModal: React.FC<UploadMemoryModalProps> = ({ isOpen, on
               /* Drop / Select Zone */
               <div
                 onClick={() => fileInputRef.current?.click()}
-                className="border-2 border-dashed border-slate-800 hover:border-indigo-500/60 rounded-2xl p-5 text-center cursor-pointer transition-colors bg-slate-950/40 hover:bg-slate-950/70 group"
+                className="border-2 border-dashed border-slate-800 hover:border-indigo-500/60 rounded-2xl p-6 text-center cursor-pointer transition-colors bg-slate-950/40 hover:bg-slate-950/70 group"
               >
-                <div className="w-10 h-10 mx-auto mb-2 rounded-2xl bg-indigo-950/60 border border-indigo-800/40 flex items-center justify-center text-indigo-400 group-hover:scale-110 transition-transform">
-                  <UploadCloud className="w-5 h-5" />
+                <div className="w-12 h-12 mx-auto mb-2 rounded-2xl bg-indigo-950/60 border border-indigo-800/40 flex items-center justify-center text-indigo-400 group-hover:scale-110 transition-transform">
+                  <UploadCloud className="w-6 h-6" />
                 </div>
                 <p className="text-xs font-bold text-slate-200">Click to Select Multiple Photos</p>
                 <p className="text-[11px] text-slate-400 mt-0.5">Select photo1.jpg, photo2.jpg, photo3.jpg... all at once</p>
@@ -473,7 +424,7 @@ export const UploadMemoryModal: React.FC<UploadMemoryModalProps> = ({ isOpen, on
                 </div>
 
                 <div className="flex items-center justify-between text-[10px] text-slate-400 px-1 pt-1 border-t border-slate-900">
-                  <span>Photo #1 will be used as the main photo cover</span>
+                  <span>Photo #1 will be used as the main post cover</span>
                   {hasUploading ? (
                     <span className="text-indigo-400 flex items-center gap-1">
                       <Loader2 className="w-3 h-3 animate-spin" /> Uploading to storage...
@@ -484,121 +435,6 @@ export const UploadMemoryModal: React.FC<UploadMemoryModalProps> = ({ isOpen, on
                     </span>
                   ) : null}
                 </div>
-              </div>
-            )}
-          </div>
-
-          {/* ========================================================================= */}
-          {/* OPTIONAL YOUTUBE VIDEO SECTION */}
-          {/* ========================================================================= */}
-          <div className="space-y-2">
-            {!showYouTubeSection && !hasValidYouTube ? (
-              <button
-                type="button"
-                onClick={() => setShowYouTubeSection(true)}
-                disabled={isSubmitting}
-                className="w-full py-2.5 px-3 rounded-2xl bg-slate-950/70 border border-slate-800/90 hover:border-rose-600/50 hover:bg-slate-950 text-slate-300 hover:text-white flex items-center justify-between transition-all group"
-              >
-                <div className="flex items-center gap-2 text-xs font-semibold">
-                  <div className="w-6 h-6 rounded-lg bg-rose-500/10 text-rose-400 flex items-center justify-center group-hover:scale-105 transition-transform">
-                    <Youtube className="w-3.5 h-3.5" />
-                  </div>
-                  <span>🎥 Add YouTube video <span className="text-slate-500 font-normal">(optional)</span></span>
-                </div>
-                <Plus className="w-4 h-4 text-slate-500 group-hover:text-slate-300" />
-              </button>
-            ) : (
-              <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-3.5 space-y-3 animate-in fade-in zoom-in-95 duration-150">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
-                    <Youtube className="w-4 h-4 text-rose-500" />
-                    <span>YouTube Video Link</span>
-                    <span className="text-[10px] text-slate-500 font-normal">(optional)</span>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={handleRemoveYouTube}
-                    disabled={isSubmitting}
-                    className="text-[11px] text-slate-400 hover:text-rose-400 flex items-center gap-1 transition-colors"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                    <span>Remove</span>
-                  </button>
-                </div>
-
-                <div className="relative">
-                  <input
-                    type="url"
-                    disabled={isSubmitting}
-                    placeholder="https://www.youtube.com/watch?v=... or youtu.be/..."
-                    value={youtubeInputUrl}
-                    onChange={e => handleYouTubeInputChange(e.target.value)}
-                    className={`w-full pl-3.5 pr-8 py-2 bg-slate-900 border rounded-xl text-xs text-white placeholder:text-slate-600 focus:outline-none transition-colors ${
-                      youtubeError 
-                        ? 'border-rose-500 focus:border-rose-400' 
-                        : hasValidYouTube 
-                          ? 'border-emerald-500/80 focus:border-emerald-400' 
-                          : 'border-slate-800 focus:border-indigo-500'
-                    }`}
-                  />
-                  {hasValidYouTube && (
-                    <div className="absolute right-2.5 top-1/2 -translate-y-1/2 text-emerald-400">
-                      <CheckCircle2 className="w-4 h-4" />
-                    </div>
-                  )}
-                </div>
-
-                <div className="text-[11px] text-slate-500 space-y-0.5">
-                  <p>Supports standard videos, shorts, and youtu.be short links.</p>
-                </div>
-
-                {youtubeError && (
-                  <div className="text-xs text-rose-400 flex items-center gap-1.5">
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                    <span>{youtubeError}</span>
-                  </div>
-                )}
-
-                {/* Valid YouTube Preview Card */}
-                {hasValidYouTube && extractedYtId && (
-                  <div className="relative rounded-xl overflow-hidden bg-slate-900 border border-slate-800 p-2 flex items-center gap-3">
-                    <div className="relative w-24 h-14 rounded-lg overflow-hidden bg-black shrink-0 border border-slate-800">
-                      <img
-                        src={getYouTubeThumbnailUrl(extractedYtId, 'mq') || ''}
-                        alt="YouTube thumbnail"
-                        className="w-full h-full object-cover"
-                        referrerPolicy="no-referrer"
-                      />
-                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                        <div className="w-6 h-6 rounded-full bg-rose-600/90 text-white flex items-center justify-center shadow">
-                          <Play className="w-3 h-3 fill-current ml-0.5" />
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-400 text-[9px] font-black uppercase tracking-wider border border-rose-500/30">
-                          YouTube Video
-                        </span>
-                        <span className="text-[10px] text-emerald-400 font-bold flex items-center gap-0.5">
-                          ✓ Attached
-                        </span>
-                      </div>
-                      <p className="text-xs font-mono text-slate-300 mt-1 truncate">
-                        ID: {extractedYtId}
-                      </p>
-                      <a
-                        href={`https://www.youtube.com/watch?v=${extractedYtId}`}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        className="text-[10px] text-indigo-400 hover:underline flex items-center gap-1 mt-0.5"
-                      >
-                        <span>Open on YouTube</span>
-                        <ExternalLink className="w-2.5 h-2.5" />
-                      </a>
-                    </div>
-                  </div>
-                )}
               </div>
             )}
           </div>
@@ -682,7 +518,7 @@ export const UploadMemoryModal: React.FC<UploadMemoryModalProps> = ({ isOpen, on
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={isSubmitting || !canSubmit}
+            disabled={isSubmitting || hasUploading || hasErrors || photoItems.length === 0}
             className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-600/30 transition-all flex items-center justify-center gap-2 active:scale-[0.99]"
           >
             {isSubmitting ? (
@@ -696,13 +532,7 @@ export const UploadMemoryModal: React.FC<UploadMemoryModalProps> = ({ isOpen, on
                 <span>Uploading Photos ({photoItems.filter(p => p.status === 'success').length}/{photoItems.length})...</span>
               </>
             ) : (
-              <span>
-                {photoItems.length > 0 && hasValidYouTube
-                  ? `Publish Memory (${photoItems.length} Photos + YouTube Video)`
-                  : photoItems.length > 0
-                    ? `Publish Memory (${photoItems.length} Photos)`
-                    : `Publish Memory (YouTube Video)`}
-              </span>
+              <span>Publish Memory ({photoItems.length} Photos)</span>
             )}
           </button>
         </form>
@@ -710,4 +540,3 @@ export const UploadMemoryModal: React.FC<UploadMemoryModalProps> = ({ isOpen, on
     </div>
   );
 };
-

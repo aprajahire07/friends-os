@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { GroupPlan, PlanPoll } from '../types';
+import { dispatchPlanPushNotification } from './pushNotifications';
 
 function isValidUUID(str?: string | null): boolean {
   if (!str) return false;
@@ -122,6 +123,25 @@ export async function addPlanToSupabase(plan: {
       }]);
     } catch {
       // participant insert optional
+    }
+
+    // Trigger asynchronous Web Push to other group friends
+    try {
+      const { data: allProfiles } = await supabase.from('profiles').select('id');
+      const recipientIds = (allProfiles || [])
+        .map((p: any) => p.id)
+        .filter((id: string) => id && id !== effectiveCreatorId);
+
+      if (recipientIds.length > 0) {
+        dispatchPlanPushNotification({
+          senderName: 'A friend',
+          senderId: effectiveCreatorId,
+          recipientUserIds: recipientIds,
+          planTitle: data.title
+        }).catch(() => {});
+      }
+    } catch {
+      // Non-blocking
     }
 
     return {
