@@ -36,6 +36,7 @@ export interface SendPushResult {
   delivered?: number;
   failed?: number;
   cleaned?: number;
+  message?: string;
   error?: string;
 }
 

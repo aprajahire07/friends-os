@@ -111,14 +111,18 @@ export const PushBroadcastView: React.FC<PushBroadcastViewProps> = () => {
         const delivered = res.delivered ?? 0;
         const failed = res.failed ?? 0;
         
-        let successText = `✓ Notification sent`;
+        let successText = `✓ Notification dispatched`;
         if (delivered > 0) {
-          successText = `✓ Sent to ${delivered} ${delivered === 1 ? 'user' : 'users'}`;
+          successText = `✓ Sent to ${delivered} active ${delivered === 1 ? 'device' : 'devices'}`;
+        } else if (res.message) {
+          successText = `✓ Dispatched (${res.message})`;
+        } else {
+          successText = `✓ Dispatched (0 devices currently registered. Turn on notifications in Me tab)`;
         }
         
         let warnText: string | undefined = undefined;
         if (failed > 0) {
-          warnText = `⚠ ${failed} subscription${failed === 1 ? '' : 's'} unavailable`;
+          warnText = `⚠ ${failed} device endpoint${failed === 1 ? '' : 's'} unavailable or expired`;
         }
 
         setSendResult({
@@ -134,6 +138,7 @@ export const PushBroadcastView: React.FC<PushBroadcastViewProps> = () => {
           type: 'error',
           text: res.error || 'Failed to send notification.'
         });
+        showToast('Push Error', res.error || 'Failed to dispatch push notification.', 'error');
       }
     } catch (err: any) {
       setSendResult({
