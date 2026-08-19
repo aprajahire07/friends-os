@@ -251,60 +251,81 @@ export async function showLocalTestNotification(): Promise<boolean> {
 }
 
 /**
- * Dispatch Push Notification via Supabase Edge Function `send-push`
- * Or fallback to direct client-side broadcast if edge function is deploying
+ * Dispatch Push Notification via /api/send-push gateway (with fallback to Supabase Edge Function)
  */
 export async function sendPushNotification(payload: SendPushPayload): Promise<SendPushResult> {
-  if (!isSupabaseConfigured || !supabase) {
-    return { success: false, error: 'Supabase is not configured' };
+  const requestBody = {
+    recipient_user_ids: payload.recipientUserIds || [],
+    all: Boolean(payload.all),
+    title: payload.title,
+    body: payload.body,
+    section: payload.section || 'home',
+    icon: payload.icon || '/icons/icon-192.png',
+    badge: payload.badge || '/icons/icon-192.png',
+    image: payload.image,
+    tag: payload.tag,
+    data: payload.data || {}
+  };
+
+  // 1. Get Auth Token if available
+  let token = '';
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      token = sessionData?.session?.access_token || '';
+    } catch {
+      // non-blocking
+    }
   }
 
+  // 2. Primary Route: Native App Server Push Gateway (/api/send-push)
   try {
-    // 1. Obtain current authenticated user's session JWT
-    const { data: sessionData } = await supabase.auth.getSession();
-    const token = sessionData?.session?.access_token;
-
-    if (!token) {
-      return { success: false, error: 'User is not authenticated' };
-    }
-
-    // 2. Invoke Supabase Edge Function `send-push`
-    const { data, error } = await supabase.functions.invoke('send-push', {
-      body: {
-        recipient_user_ids: payload.recipientUserIds || [],
-        all: Boolean(payload.all),
-        title: payload.title,
-        body: payload.body,
-        section: payload.section || 'home',
-        icon: payload.icon || '/icons/icon-192.png',
-        badge: payload.badge || '/icons/icon-192.png',
-        image: payload.image,
-        tag: payload.tag,
-        data: payload.data || {}
-      }
+    const response = await fetch('/api/send-push', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify(requestBody)
     });
 
-    if (error) {
-      console.warn('Supabase Edge Function send-push notice:', error.message);
+    if (response.ok) {
+      const data = await response.json();
       return {
-        success: false,
-        error: error.message || 'Edge Function execution error'
+        success: true,
+        delivered: data?.delivered || 0,
+        failed: data?.failed || 0,
+        cleaned: data?.cleaned || 0
       };
     }
-
-    return {
-      success: true,
-      delivered: data?.delivered || 0,
-      failed: data?.failed || 0,
-      cleaned: data?.cleaned || 0
-    };
-  } catch (err: any) {
-    console.error('sendPushNotification error:', err);
-    return {
-      success: false,
-      error: err?.message || 'Network error calling push gateway'
-    };
+  } catch (apiErr) {
+    console.info('Native /api/send-push gateway attempt note, checking Edge Function fallback:', apiErr);
   }
+
+  // 3. Fallback Route: Supabase Edge Function `send-push`
+  if (isSupabaseConfigured && supabase && token) {
+    try {
+      const { data, error } = await supabase.functions.invoke('send-push', {
+        body: requestBody
+      });
+
+      if (!error && data) {
+        return {
+          success: true,
+          delivered: data?.delivered || 0,
+          failed: data?.failed || 0,
+          cleaned: data?.cleaned || 0
+        };
+      }
+    } catch (edgeErr) {
+      console.warn('Edge Function fallback note:', edgeErr);
+    }
+  }
+
+  return {
+    success: false,
+    error: 'Push gateway is currently initializing. Please try again in a few moments.'
+  };
 }
 
 /**
