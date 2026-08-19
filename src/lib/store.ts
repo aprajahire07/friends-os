@@ -85,6 +85,15 @@ import {
   adminToggleMemoriesLock as apiAdminToggleMemoriesLock,
   verifyMemoriesPasscodeSecurely
 } from '../services/admin';
+import {
+  dispatchSnapPushNotification,
+  dispatchChatPushNotification,
+  dispatchMoneyPushNotification,
+  dispatchBorrowedPushNotification,
+  dispatchPlanPushNotification,
+  dispatchNotePushNotification,
+  dispatchMemoryPushNotification
+} from '../services/pushNotifications';
 
 // Helper to safely load from local storage
 function loadInitialState<T>(key: string, fallback: T): T {
@@ -1006,6 +1015,29 @@ export const appStore = {
       } : m);
       saveState('messages', this.messages);
       notifyListeners();
+
+      // Trigger automatic push notification to recipients
+      try {
+        const isDirect = Boolean(recipient_id);
+        const recipientUserIds = isDirect
+          ? (recipient_id ? [recipient_id] : [])
+          : this.profiles
+              .filter(p => p.id !== this.currentUser?.id && !p.is_banned)
+              .map(p => p.id);
+
+        if (recipientUserIds.length > 0) {
+          dispatchChatPushNotification({
+            senderName: this.currentUser.full_name || this.currentUser.username || 'Friend',
+            senderId: this.currentUser.id,
+            recipientUserIds,
+            content: content || (media_url ? 'Sent an attachment' : 'New message'),
+            isDirect,
+            groupName: this.group?.name || 'College Crew'
+          }).catch(err => console.warn('Chat push notification notice:', err));
+        }
+      } catch (pushErr) {
+        console.warn('Chat push dispatch non-blocking error:', pushErr);
+      }
     }
 
     return newMsg;
@@ -1317,6 +1349,23 @@ export const appStore = {
       this.expenses = this.expenses.map(e => e.id === tempId ? { ...remoteExp, payer_profile: this.currentUser } : e);
       saveState('expenses', this.expenses);
       notifyListeners();
+
+      // Trigger automatic push notification to all split participants except payer
+      try {
+        const recipientUserIds = participant_ids.filter(id => id && id !== this.currentUser?.id);
+        if (recipientUserIds.length > 0) {
+          dispatchMoneyPushNotification({
+            senderName: this.currentUser.full_name || 'Friend',
+            senderId: this.currentUser.id,
+            recipientUserIds,
+            type: 'split',
+            itemTitle: title
+          }).catch(err => console.warn('Expense push notification notice:', err));
+        }
+      } catch (pushErr) {
+        console.warn('Expense push dispatch non-blocking error:', pushErr);
+      }
+
       return remoteExp;
     } else if (isSupabaseConfigured) {
       // Rollback temporary optimistic state if Supabase insertion failed
@@ -1514,6 +1563,23 @@ export const appStore = {
       this.loans = this.loans.map(l => l.id === tempId ? { ...remoteLoan, lender_profile: lender, borrower_profile: borrower } : l);
       saveState('loans', this.loans);
       notifyListeners();
+
+      // Trigger automatic push notification to the affected friend
+      try {
+        const isCurrentUserLender = this.currentUser.id === lenderId;
+        const targetUserId = isCurrentUserLender ? actualBorrowerId : lenderId;
+        if (targetUserId && targetUserId !== this.currentUser.id) {
+          dispatchMoneyPushNotification({
+            senderName: this.currentUser.full_name || 'Friend',
+            senderId: this.currentUser.id,
+            recipientUserIds: [targetUserId],
+            type: isCurrentUserLender ? 'paid_for_you' : 'expense',
+            itemTitle: `${reason} (₹${amount})`
+          }).catch(err => console.warn('Loan push notification notice:', err));
+        }
+      } catch (pushErr) {
+        console.warn('Loan push dispatch non-blocking error:', pushErr);
+      }
     }
   },
 
@@ -1772,6 +1838,23 @@ export const appStore = {
       this.plans = this.plans.map(p => p.id === tempId ? { ...remotePlan, creator_profile: this.currentUser } : p);
       saveState('plans', this.plans);
       notifyListeners();
+
+      // Trigger automatic push notification to all group members except creator
+      try {
+        const recipientUserIds = this.profiles
+          .filter(p => p.id !== this.currentUser?.id && !p.is_banned)
+          .map(p => p.id);
+        if (recipientUserIds.length > 0) {
+          dispatchPlanPushNotification({
+            senderName: this.currentUser.full_name || 'Friend',
+            senderId: this.currentUser.id,
+            recipientUserIds,
+            planTitle: title
+          }).catch(err => console.warn('Plan push notification notice:', err));
+        }
+      } catch (pushErr) {
+        console.warn('Plan push dispatch non-blocking error:', pushErr);
+      }
     }
   },
 
@@ -1946,6 +2029,23 @@ export const appStore = {
           }
         });
 
+        // Trigger automatic push notification to all group members except creator
+        try {
+          const recipientUserIds = this.profiles
+            .filter(p => p.id !== this.currentUser?.id && !p.is_banned)
+            .map(p => p.id);
+          if (recipientUserIds.length > 0) {
+            dispatchMemoryPushNotification({
+              senderName: this.currentUser.full_name || 'Friend',
+              senderId: this.currentUser.id,
+              recipientUserIds,
+              memoryTitle: title
+            }).catch(err => console.warn('Memory push notification notice:', err));
+          }
+        } catch (pushErr) {
+          console.warn('Memory push dispatch non-blocking error:', pushErr);
+        }
+
         return { success: true, memory: fullMem };
       } else {
         return { success: false, error: 'Failed to persist memory to Supabase database.' };
@@ -2032,6 +2132,24 @@ export const appStore = {
       // Auto unlock in current session for the uploader
       this.unlockedNoteIds.add(fullNote.id);
       notifyListeners();
+
+      // Trigger automatic push notification to all eligible group members except uploader
+      try {
+        const recipientUserIds = this.profiles
+          .filter(p => p.id !== this.currentUser?.id && !p.is_banned)
+          .map(p => p.id);
+        if (recipientUserIds.length > 0) {
+          dispatchNotePushNotification({
+            senderName: this.currentUser.full_name || 'Friend',
+            senderId: this.currentUser.id,
+            recipientUserIds,
+            noteCaption: params.caption
+          }).catch(err => console.warn('Note push notification notice:', err));
+        }
+      } catch (pushErr) {
+        console.warn('Note push dispatch non-blocking error:', pushErr);
+      }
+
       return { success: true, note: fullNote };
     }
 
@@ -2370,6 +2488,22 @@ export const appStore = {
       this.borrowed = this.borrowed.map(b => b.id === tempId ? { ...remoteItem, owner_profile: owner, borrower_profile: borrower } : b);
       saveState('borrowed', this.borrowed);
       notifyListeners();
+
+      // Trigger automatic push notification
+      try {
+        const isBorrower = this.currentUser.id === borrower_id;
+        const otherUserId = isBorrower ? owner_id : borrower_id;
+        if (otherUserId && otherUserId !== this.currentUser.id) {
+          dispatchBorrowedPushNotification({
+            senderName: this.currentUser.full_name || 'Friend',
+            senderId: this.currentUser.id,
+            recipientUserId: otherUserId,
+            itemName: item_name
+          }).catch(err => console.warn('Borrowed push notification notice:', err));
+        }
+      } catch (pushErr) {
+        console.warn('Borrowed push dispatch non-blocking error:', pushErr);
+      }
     }
   },
 
@@ -2397,6 +2531,20 @@ export const appStore = {
       const msg = `${this.currentUser.full_name} marked "${targetItem.item_name}" as returned.`;
 
       this.addNotification(otherUserId, 'borrowed', '📦 Item Returned', msg);
+
+      // Trigger automatic push notification for returned item
+      try {
+        if (otherUserId && otherUserId !== this.currentUser.id) {
+          dispatchBorrowedPushNotification({
+            senderName: this.currentUser.full_name || 'Friend',
+            senderId: this.currentUser.id,
+            recipientUserId: otherUserId,
+            itemName: `Returned: ${targetItem.item_name}`
+          }).catch(err => console.warn('Borrowed return push notice:', err));
+        }
+      } catch (pushErr) {
+        console.warn('Borrowed return push dispatch error:', pushErr);
+      }
     }
   },
 
@@ -2487,6 +2635,18 @@ export const appStore = {
         );
       }
     });
+
+    // Trigger automatic push notification to snap recipients
+    try {
+      dispatchSnapPushNotification({
+        senderName: this.currentUser.full_name || this.currentUser.username || 'A friend',
+        senderId: this.currentUser.id,
+        recipientUserIds: recipientIds,
+        isEveryone: Boolean(isEveryone)
+      }).catch(err => console.warn('Snap push notification notice:', err));
+    } catch (pushErr) {
+      console.warn('Snap push dispatch non-blocking error:', pushErr);
+    }
 
     return newSnaps[0];
   },

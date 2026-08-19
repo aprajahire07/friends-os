@@ -636,6 +636,8 @@ export async function dispatchChatPushNotification(params: {
   senderId: string;
   recipientUserIds: string[];
   content: string;
+  isDirect?: boolean;
+  groupName?: string;
 }) {
   const recipients = params.recipientUserIds.filter(id => id && id !== params.senderId);
   if (recipients.length === 0) return;
@@ -643,16 +645,21 @@ export async function dispatchChatPushNotification(params: {
   const dedupeKey = `chat_${params.senderId}_${recipients.sort().join('_')}_${params.content.slice(0, 30)}_${Math.floor(Date.now() / 4000)}`;
 
   const snippet = params.content.length > 50 ? `${params.content.substring(0, 50)}...` : params.content;
+  const groupLabel = params.groupName || 'College Crew';
+  const body = params.isDirect 
+    ? `${params.senderName}: ${snippet}` 
+    : `${params.senderName} sent a new message in ${groupLabel}`;
 
   return sendDeduplicatedPush(dedupeKey, {
     recipientUserIds: recipients,
     title: '💬 Friend OS',
-    body: `${params.senderName}: ${snippet}`,
+    body: body,
     section: 'chat',
     tag: `friend-os-chat-${Date.now()}`,
     data: {
       section: 'chat',
-      senderName: params.senderName
+      senderName: params.senderName,
+      isDirect: Boolean(params.isDirect)
     }
   });
 }
