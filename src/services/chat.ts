@@ -1,6 +1,5 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { ChatMessage, ChatCategory } from '../types';
-import { dispatchChatPushNotification } from './pushNotifications';
 
 function isValidUUID(str?: string | null): boolean {
   if (!str) return false;
@@ -175,37 +174,7 @@ export async function sendMessageToSupabase(msg: Partial<ChatMessage>): Promise<
       }
     }
 
-    // Trigger asynchronous Web Push (non-blocking)
     if (resultMessage) {
-      try {
-        const senderName = msg.sender?.full_name || 'A friend';
-        if (msg.recipient_id) {
-          // Direct message
-          dispatchChatPushNotification({
-            senderName,
-            senderId: effectiveSenderId,
-            recipientUserIds: [msg.recipient_id],
-            content: msg.content || ''
-          }).catch(() => {});
-        } else {
-          // Group message: notify other members
-          supabase.from('profiles').select('id').then(({ data: allProfiles }) => {
-            const recipientIds = (allProfiles || [])
-              .map((p: any) => p.id)
-              .filter((id: string) => id && id !== effectiveSenderId);
-            if (recipientIds.length > 0) {
-              dispatchChatPushNotification({
-                senderName,
-                senderId: effectiveSenderId,
-                recipientUserIds: recipientIds,
-                content: msg.content || ''
-              }).catch(() => {});
-            }
-          });
-        }
-      } catch {
-        // Non-blocking
-      }
       return resultMessage;
     }
 

@@ -1,6 +1,5 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { Note, NoteFile } from '../types';
-import { dispatchNotePushNotification } from './pushNotifications';
 import { 
   uploadFileWithBucketRotation, 
   getUniversalStorageUrl, 
@@ -221,25 +220,6 @@ export async function createNoteInSupabase(params: {
       ...noteRow,
       files: uploadedNoteFiles
     };
-
-    // Trigger asynchronous Web Push to all other friends in the group
-    try {
-      const { data: allProfiles } = await supabase.from('profiles').select('id');
-      const recipientIds = (allProfiles || [])
-        .map((p: any) => p.id)
-        .filter((id: string) => id && id !== uploaderId);
-
-      if (recipientIds.length > 0) {
-        dispatchNotePushNotification({
-          senderName: 'A friend',
-          senderId: uploaderId,
-          recipientUserIds: recipientIds,
-          noteCaption: caption.trim()
-        }).catch(() => {});
-      }
-    } catch {
-      // Non-blocking
-    }
 
     return { success: true, note: createdNote };
   } catch (err: any) {

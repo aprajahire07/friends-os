@@ -1,6 +1,5 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { GroupExpense, PersonalLoan, ExpenseParticipant } from '../types';
-import { dispatchMoneyPushNotification } from './pushNotifications';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -236,27 +235,6 @@ export async function addExpenseToSupabase(expense: Partial<GroupExpense>): Prom
 
     if (insertedParticipants.length === 0 && expense.participants) {
       insertedParticipants = expense.participants;
-    }
-
-    // Trigger asynchronous Web Push to participants (non-blocking)
-    try {
-      const recipientIds = insertedParticipants
-        .map(p => p.user_id)
-        .filter(id => id && id !== expData.paid_by);
-
-      if (recipientIds.length > 0) {
-        const isPaidForFriend = recipientIds.length === 1;
-        const payerName = expense.payer_profile?.full_name || 'A friend';
-        dispatchMoneyPushNotification({
-          senderName: payerName,
-          senderId: expData.paid_by,
-          recipientUserIds: recipientIds,
-          type: isPaidForFriend ? 'paid_for_you' : 'split',
-          itemTitle: expData.title
-        }).catch(() => {});
-      }
-    } catch {
-      // Non-blocking
     }
 
     return {
