@@ -59,7 +59,8 @@ import {
   addPollToPlanInSupabase,
   deletePlanFromSupabase
 } from '../services/plans';
-import { fetchMemoriesFromSupabase, addMemoryToSupabase, deleteMemoryFromSupabase } from '../services/memories';
+import { fetchMemoriesFromSupabase, addMemoryToSupabase, updateMemoryInSupabase, deleteMemoryFromSupabase } from '../services/memories';
+import { extractYouTubeVideoId } from './youtube';
 import { fetchNotesFromSupabase, createNoteInSupabase, deleteNoteFromSupabase, verifyNotePasswordInSupabase } from '../services/notes';
 import { fetchBorrowedItemsFromSupabase, addBorrowedItemToSupabase, markItemReturnedInSupabase } from '../services/borrowed';
 import { fetchDateAttendanceFromSupabase, markDateAttendanceInSupabase, fetchClassReportsFromSupabase, reportClassCancellationInSupabase } from '../services/attendance';
@@ -1977,11 +1978,16 @@ export const appStore = {
     media_urls: string[], 
     date: string, 
     location?: string, 
-    tagged_user_ids: string[] = []
+    tagged_user_ids: string[] = [],
+    youtube_url?: string | null,
+    youtube_video_id?: string | null
   ): Promise<{ success: boolean; memory?: Memory; error?: string }> {
     if (!this.currentUser) return { success: false, error: 'User not logged in' };
     const groupId = this.group?.id;
     const tempId = `mem-${Date.now()}`;
+
+    const ytVideoId = youtube_video_id || extractYouTubeVideoId(youtube_url) || null;
+    const cleanYtUrl = youtube_url?.trim() || (ytVideoId ? `https://www.youtube.com/watch?v=${ytVideoId}` : null);
 
     const newMem: Memory = {
       id: tempId,
@@ -1990,6 +1996,8 @@ export const appStore = {
       title,
       caption,
       media_urls,
+      youtube_url: cleanYtUrl,
+      youtube_video_id: ytVideoId,
       date,
       location,
       tagged_user_ids,
@@ -2004,6 +2012,8 @@ export const appStore = {
         title,
         caption,
         media_urls,
+        youtube_url: cleanYtUrl,
+        youtube_video_id: ytVideoId,
         date,
         location,
         tagged_user_ids
@@ -2071,6 +2081,62 @@ export const appStore = {
 
       return { success: true, memory: newMem };
     }
+  },
+
+  async updateMemory(
+    memoryId: string,
+    updates: {
+      title?: string;
+      caption?: string;
+      date?: string;
+      location?: string;
+      youtube_url?: string | null;
+      youtube_video_id?: string | null;
+      tagged_user_ids?: string[];
+    }
+  ): Promise<boolean> {
+    if (!this.currentUser) return false;
+    const target = this.memories.find(m => m.id === memoryId);
+    if (!target) return false;
+
+    const isAdmin = isUserAdmin(this.currentUser);
+    const isCreator = target.creator_id === this.currentUser.id || 
+                      target.creator_profile?.id === this.currentUser.id ||
+                      target.creator_profile?.email?.toLowerCase() === this.currentUser.email?.toLowerCase();
+
+    if (!isCreator && !isAdmin) {
+      console.warn('Unauthorized to update this memory.');
+      return false;
+    }
+
+    const ytId = updates.youtube_video_id !== undefined ? updates.youtube_video_id : (updates.youtube_url !== undefined ? extractYouTubeVideoId(updates.youtube_url) : target.youtube_video_id);
+    const ytUrl = updates.youtube_url !== undefined ? updates.youtube_url : (ytId ? `https://www.youtube.com/watch?v=${ytId}` : target.youtube_url);
+
+    this.memories = this.memories.map(m => {
+      if (m.id !== memoryId) return m;
+      return {
+        ...m,
+        title: updates.title !== undefined ? updates.title : m.title,
+        caption: updates.caption !== undefined ? updates.caption : m.caption,
+        date: updates.date !== undefined ? updates.date : m.date,
+        location: updates.location !== undefined ? updates.location : m.location,
+        youtube_url: ytUrl,
+        youtube_video_id: ytId,
+        tagged_user_ids: updates.tagged_user_ids !== undefined ? updates.tagged_user_ids : m.tagged_user_ids
+      };
+    });
+
+    saveState('memories', this.memories);
+    notifyListeners();
+
+    if (isSupabaseConfigured) {
+      try {
+        await updateMemoryInSupabase(memoryId, updates);
+      } catch (err) {
+        console.warn('Error updating memory in Supabase:', err);
+      }
+    }
+    return true;
   },
 
   async deleteMemory(memoryId: string): Promise<boolean> {

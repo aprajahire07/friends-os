@@ -15,7 +15,12 @@ import {
   MapPin,
   Calendar,
   Layers,
-  Sparkles
+  Sparkles,
+  Youtube,
+  Edit3,
+  ExternalLink,
+  Play,
+  Video
 } from 'lucide-react';
 import { appStore, useAppStore } from '../../lib/store';
 import { isUserAdmin } from '../../services/appSettings';
@@ -25,15 +30,21 @@ import { useToast } from '../ui/Toast';
 import { UploadMemoryModal } from './UploadMemoryModal';
 import { MemoryLockedView } from './MemoryLockedView';
 import { MemorySettingsModal } from './MemorySettingsModal';
+import { EditMemoryModal } from './EditMemoryModal';
+import { extractYouTubeVideoId, getYouTubeEmbedUrl, getYouTubeThumbnailUrl } from '../../lib/youtube';
 
 export const MemoryGallery: React.FC = () => {
   const { showToast } = useToast();
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [editingMemory, setEditingMemory] = useState<Memory | null>(null);
+
+  // Fullscreen Viewer State
   const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null);
   const [activePhotoIndex, setActivePhotoIndex] = useState(0);
-  const [isDeleting, setIsDeleting] = useState(false);
+  const [viewerMode, setViewerMode] = useState<'photos' | 'youtube'>('photos');
 
+  const [isDeleting, setIsDeleting] = useState(false);
   const [memoryToDelete, setMemoryToDelete] = useState<Memory | null>(null);
 
   const store = useAppStore();
@@ -50,9 +61,9 @@ export const MemoryGallery: React.FC = () => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setSelectedMemory(null);
-      } else if (e.key === 'ArrowLeft') {
+      } else if (e.key === 'ArrowLeft' && viewerMode === 'photos') {
         setActivePhotoIndex(prev => Math.max(0, prev - 1));
-      } else if (e.key === 'ArrowRight') {
+      } else if (e.key === 'ArrowRight' && viewerMode === 'photos') {
         const total = selectedMemory.media_urls?.length || 1;
         setActivePhotoIndex(prev => Math.min(total - 1, prev + 1));
       }
@@ -60,7 +71,7 @@ export const MemoryGallery: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedMemory]);
+  }, [selectedMemory, viewerMode]);
 
   // Group memories by Year and Month
   const groupedMemories: { [yearMonth: string]: Memory[] } = {};
@@ -77,7 +88,7 @@ export const MemoryGallery: React.FC = () => {
     });
   }
 
-  const canDeleteMemory = (mem: Memory) => {
+  const canManageMemory = (mem: Memory) => {
     if (!currentUser) return false;
     if (isAdmin) return true;
     if (mem.creator_id === currentUser.id) return true;
@@ -114,9 +125,10 @@ export const MemoryGallery: React.FC = () => {
     }
   };
 
-  const handleOpenMemoryModal = (mem: Memory, initialIndex = 0) => {
+  const handleOpenMemoryModal = (mem: Memory, initialIndex = 0, mode: 'photos' | 'youtube' = 'photos') => {
     setSelectedMemory(mem);
     setActivePhotoIndex(initialIndex);
+    setViewerMode(mode);
   };
 
   const isVideoUrl = (url?: string) => {
@@ -129,19 +141,13 @@ export const MemoryGallery: React.FC = () => {
     const urls = mem.media_urls || [];
     const count = urls.length;
 
-    if (count === 0) {
-      return (
-        <div className="aspect-video rounded-2xl bg-slate-900 flex items-center justify-center text-slate-500 text-xs">
-          No photos available
-        </div>
-      );
-    }
+    if (count === 0) return null;
 
     if (count === 1) {
       const isVideo = isVideoUrl(urls[0]);
       return (
         <div 
-          onClick={() => handleOpenMemoryModal(mem, 0)}
+          onClick={() => handleOpenMemoryModal(mem, 0, 'photos')}
           className="aspect-video rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 cursor-pointer group relative shadow-md"
         >
           {isVideo ? (
@@ -168,7 +174,7 @@ export const MemoryGallery: React.FC = () => {
           {urls.slice(0, 2).map((url, idx) => (
             <div
               key={idx}
-              onClick={() => handleOpenMemoryModal(mem, idx)}
+              onClick={() => handleOpenMemoryModal(mem, idx, 'photos')}
               className="aspect-square relative overflow-hidden cursor-pointer group"
             >
               <img
@@ -186,7 +192,7 @@ export const MemoryGallery: React.FC = () => {
       return (
         <div className="grid grid-cols-3 gap-1.5 rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 shadow-md">
           <div
-            onClick={() => handleOpenMemoryModal(mem, 0)}
+            onClick={() => handleOpenMemoryModal(mem, 0, 'photos')}
             className="col-span-2 aspect-[4/3] relative overflow-hidden cursor-pointer group"
           >
             <img
@@ -199,7 +205,7 @@ export const MemoryGallery: React.FC = () => {
             {urls.slice(1, 3).map((url, idx) => (
               <div
                 key={idx}
-                onClick={() => handleOpenMemoryModal(mem, idx + 1)}
+                onClick={() => handleOpenMemoryModal(mem, idx + 1, 'photos')}
                 className="h-full relative overflow-hidden cursor-pointer group"
               >
                 <img
@@ -221,7 +227,7 @@ export const MemoryGallery: React.FC = () => {
         {urls.slice(0, 3).map((url, idx) => (
           <div
             key={idx}
-            onClick={() => handleOpenMemoryModal(mem, idx)}
+            onClick={() => handleOpenMemoryModal(mem, idx, 'photos')}
             className="aspect-square relative overflow-hidden cursor-pointer group"
           >
             <img
@@ -234,7 +240,7 @@ export const MemoryGallery: React.FC = () => {
 
         {/* 4th photo with +N overlay if more */}
         <div
-          onClick={() => handleOpenMemoryModal(mem, 3)}
+          onClick={() => handleOpenMemoryModal(mem, 3, 'photos')}
           className="aspect-square relative overflow-hidden cursor-pointer group"
         >
           <img
@@ -248,6 +254,46 @@ export const MemoryGallery: React.FC = () => {
               <span className="text-[10px] font-bold text-slate-300">More Photos</span>
             </div>
           )}
+        </div>
+      </div>
+    );
+  };
+
+  // Helper to render the embedded 16:9 YouTube video player
+  const renderYouTubePlayer = (mem: Memory) => {
+    const videoId = mem.youtube_video_id || extractYouTubeVideoId(mem.youtube_url);
+    if (!videoId) return null;
+
+    const embedUrl = getYouTubeEmbedUrl(videoId);
+    if (!embedUrl) return null;
+
+    return (
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between px-1 text-[11px] text-slate-400">
+          <span className="flex items-center gap-1.5 font-bold text-slate-300">
+            <Youtube className="w-3.5 h-3.5 text-rose-500" />
+            <span>YouTube Video</span>
+          </span>
+          <a
+            href={`https://www.youtube.com/watch?v=${videoId}`}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="text-[10px] text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1"
+          >
+            <span>Watch on YouTube</span>
+            <ExternalLink className="w-2.5 h-2.5" />
+          </a>
+        </div>
+
+        {/* Responsive 16:9 container for YouTube Embed */}
+        <div className="relative w-full aspect-video rounded-2xl overflow-hidden bg-black border border-slate-800 shadow-lg group">
+          <iframe
+            src={embedUrl}
+            title={mem.title || 'YouTube Memory Video'}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen
+            className="absolute inset-0 w-full h-full border-0"
+          />
         </div>
       </div>
     );
@@ -274,7 +320,7 @@ export const MemoryGallery: React.FC = () => {
             )}
           </div>
           <p className="text-xs text-slate-400 mt-0.5">
-            College trips, campus hangouts, and gang moments grouped in shared photo posts.
+            College trips, campus hangouts, and gang moments with photos & YouTube videos.
           </p>
         </div>
 
@@ -345,7 +391,7 @@ export const MemoryGallery: React.FC = () => {
           </div>
           <p className="text-sm font-bold text-white">Your memory timeline is waiting 📸</p>
           <p className="text-slate-400 max-w-sm mx-auto">
-            Upload multiple photos from your trip, parties, and campus days under one post with one shared caption!
+            Upload multiple photos and embed YouTube videos from your trips, parties, and campus days!
           </p>
           <button
             onClick={() => setShowUploadModal(true)}
@@ -372,11 +418,12 @@ export const MemoryGallery: React.FC = () => {
                 {groupItems.map(mem => {
                   const creator = mem.creator_profile || store.profiles.find(p => p.id === mem.creator_id);
                   const photoCount = mem.media_urls?.length || 0;
+                  const hasYouTube = Boolean(mem.youtube_video_id || extractYouTubeVideoId(mem.youtube_url));
 
                   return (
                     <div
                       key={mem.id}
-                      className="bg-slate-900/90 border border-slate-800 rounded-3xl overflow-hidden p-4 sm:p-5 text-slate-100 shadow-xl space-y-3.5 hover:border-slate-700/80 transition-colors"
+                      className="bg-slate-900/90 border border-slate-800 rounded-3xl overflow-hidden p-4 sm:p-5 text-slate-100 shadow-xl space-y-4 hover:border-slate-700/80 transition-colors"
                     >
                       {/* Post Header: Creator, Title, Meta */}
                       <div className="flex items-start justify-between gap-3">
@@ -416,14 +463,33 @@ export const MemoryGallery: React.FC = () => {
                           </div>
                         </div>
 
-                        {/* Photo Count Badge & Actions */}
-                        <div className="flex items-center gap-1.5">
-                          <span className="px-2.5 py-1 rounded-xl bg-slate-950 border border-slate-800 text-[11px] font-extrabold text-indigo-300 flex items-center gap-1.5">
-                            <Images className="w-3.5 h-3.5 text-indigo-400" />
-                            <span>{photoCount} {photoCount === 1 ? 'photo' : 'photos'}</span>
-                          </span>
+                        {/* Badges & Actions */}
+                        <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                          {photoCount > 0 && (
+                            <span className="px-2.5 py-1 rounded-xl bg-slate-950 border border-slate-800 text-[11px] font-extrabold text-indigo-300 flex items-center gap-1.5">
+                              <Images className="w-3.5 h-3.5 text-indigo-400" />
+                              <span>{photoCount} {photoCount === 1 ? 'photo' : 'photos'}</span>
+                            </span>
+                          )}
 
-                          {canDeleteMemory(mem) && (
+                          {hasYouTube && (
+                            <span className="px-2.5 py-1 rounded-xl bg-rose-950/60 border border-rose-900/60 text-[11px] font-extrabold text-rose-400 flex items-center gap-1.5">
+                              <Youtube className="w-3.5 h-3.5" />
+                              <span>Video</span>
+                            </span>
+                          )}
+
+                          {canManageMemory(mem) && (
+                            <button
+                              onClick={() => setEditingMemory(mem)}
+                              className="p-2 rounded-xl text-slate-400 hover:text-indigo-300 hover:bg-slate-800 transition-colors"
+                              title="Edit Memory Details / YouTube Video"
+                            >
+                              <Edit3 className="w-4 h-4" />
+                            </button>
+                          )}
+
+                          {canManageMemory(mem) && (
                             <button
                               onClick={(e) => confirmDeleteMemory(e, mem)}
                               disabled={isDeleting}
@@ -436,8 +502,11 @@ export const MemoryGallery: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* Multi-Photo Grid Collage */}
-                      {renderPhotoGrid(mem)}
+                      {/* Multi-Photo Grid Collage (if photos exist) */}
+                      {photoCount > 0 && renderPhotoGrid(mem)}
+
+                      {/* Embedded YouTube Player (if YouTube attached) */}
+                      {hasYouTube && renderYouTubePlayer(mem)}
 
                       {/* Single Caption for the whole Memory Post */}
                       {mem.caption && (
@@ -474,7 +543,7 @@ export const MemoryGallery: React.FC = () => {
         </div>
       )}
 
-      {/* Fullscreen Photo Carousel / Viewer Modal */}
+      {/* Fullscreen Photo & YouTube Carousel / Viewer Modal */}
       {selectedMemory && (
         <div className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
           <div className="relative max-w-3xl w-full bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[94vh]">
@@ -482,14 +551,18 @@ export const MemoryGallery: React.FC = () => {
             <div className="p-4 bg-slate-950/80 border-b border-slate-800/80 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2.5 min-w-0">
                 <div className="p-2 rounded-xl bg-indigo-950/80 text-indigo-400 border border-indigo-800/60 shrink-0">
-                  <Images className="w-4 h-4" />
+                  {viewerMode === 'youtube' ? <Youtube className="w-4 h-4 text-rose-500" /> : <Images className="w-4 h-4" />}
                 </div>
                 <div className="min-w-0">
                   <h3 className="text-sm font-bold text-white truncate">{selectedMemory.title}</h3>
                   <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                    <span>
-                      Photo {activePhotoIndex + 1} of {selectedMemory.media_urls?.length || 1}
-                    </span>
+                    {viewerMode === 'photos' && selectedMemory.media_urls && selectedMemory.media_urls.length > 0 ? (
+                      <span>
+                        Photo {activePhotoIndex + 1} of {selectedMemory.media_urls.length}
+                      </span>
+                    ) : (
+                      <span className="text-rose-400 font-semibold">YouTube Video</span>
+                    )}
                     <span>•</span>
                     <span>{selectedMemory.date}</span>
                   </div>
@@ -497,7 +570,45 @@ export const MemoryGallery: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
-                {canDeleteMemory(selectedMemory) && (
+                {/* Switch between Photos & YouTube if memory has both */}
+                {selectedMemory.media_urls && selectedMemory.media_urls.length > 0 && Boolean(selectedMemory.youtube_video_id || extractYouTubeVideoId(selectedMemory.youtube_url)) && (
+                  <div className="flex items-center bg-slate-950 border border-slate-800 p-0.5 rounded-xl">
+                    <button
+                      onClick={() => setViewerMode('photos')}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                        viewerMode === 'photos' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <Images className="w-3 h-3" />
+                      <span>Photos</span>
+                    </button>
+                    <button
+                      onClick={() => setViewerMode('youtube')}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                        viewerMode === 'youtube' ? 'bg-rose-600 text-white' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <Youtube className="w-3 h-3" />
+                      <span>Video</span>
+                    </button>
+                  </div>
+                )}
+
+                {canManageMemory(selectedMemory) && (
+                  <button
+                    onClick={() => {
+                      const target = selectedMemory;
+                      setSelectedMemory(null);
+                      setEditingMemory(target);
+                    }}
+                    className="p-2 rounded-xl bg-slate-800 text-slate-300 hover:text-indigo-300 hover:bg-slate-700 transition-colors"
+                    title="Edit Memory"
+                  >
+                    <Edit3 className="w-4 h-4" />
+                  </button>
+                )}
+
+                {canManageMemory(selectedMemory) && (
                   <button
                     onClick={(e) => confirmDeleteMemory(e, selectedMemory)}
                     disabled={isDeleting}
@@ -507,6 +618,7 @@ export const MemoryGallery: React.FC = () => {
                     <Trash2 className="w-4 h-4" />
                   </button>
                 )}
+
                 <button
                   onClick={() => setSelectedMemory(null)}
                   className="p-2 text-slate-300 hover:text-white rounded-xl bg-slate-800 hover:bg-slate-700 transition-colors"
@@ -516,36 +628,56 @@ export const MemoryGallery: React.FC = () => {
               </div>
             </div>
 
-            {/* Main Carousel Viewer */}
-            <div className="relative w-full bg-slate-950 flex items-center justify-center min-h-[300px] sm:min-h-[420px] max-h-[55vh] overflow-hidden select-none">
-              {(() => {
-                const currentMedia = selectedMemory.media_urls?.[activePhotoIndex] || selectedMemory.media_urls?.[0];
-                const isVideo = isVideoUrl(currentMedia);
+            {/* Main Carousel / Video Viewer */}
+            <div className="relative w-full bg-slate-950 flex items-center justify-center min-h-[300px] sm:min-h-[420px] max-h-[58vh] overflow-hidden select-none">
+              {viewerMode === 'youtube' || (!selectedMemory.media_urls?.length && Boolean(selectedMemory.youtube_video_id || extractYouTubeVideoId(selectedMemory.youtube_url))) ? (
+                (() => {
+                  const vidId = selectedMemory.youtube_video_id || extractYouTubeVideoId(selectedMemory.youtube_url);
+                  const embedUrl = getYouTubeEmbedUrl(vidId);
+                  if (!embedUrl) return null;
 
-                if (isVideo) {
                   return (
-                    <video
+                    <div className="w-full h-full min-h-[320px] sm:min-h-[420px] aspect-video">
+                      <iframe
+                        src={embedUrl}
+                        title={selectedMemory.title}
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        allowFullScreen
+                        className="w-full h-full border-0"
+                      />
+                    </div>
+                  );
+                })()
+              ) : (
+                (() => {
+                  const currentMedia = selectedMemory.media_urls?.[activePhotoIndex] || selectedMemory.media_urls?.[0];
+                  const isVideo = isVideoUrl(currentMedia);
+
+                  if (isVideo) {
+                    return (
+                      <video
+                        key={currentMedia}
+                        src={getSyncMediaUrl('memories', currentMedia)}
+                        controls
+                        autoPlay
+                        className="w-full max-h-[55vh] object-contain"
+                      />
+                    );
+                  }
+
+                  return (
+                    <img
                       key={currentMedia}
                       src={getSyncMediaUrl('memories', currentMedia)}
-                      controls
-                      autoPlay
-                      className="w-full max-h-[55vh] object-contain"
+                      alt={`${selectedMemory.title} photo ${activePhotoIndex + 1}`}
+                      className="w-full max-h-[55vh] object-contain transition-all duration-200"
                     />
                   );
-                }
+                })()
+              )}
 
-                return (
-                  <img
-                    key={currentMedia}
-                    src={getSyncMediaUrl('memories', currentMedia)}
-                    alt={`${selectedMemory.title} photo ${activePhotoIndex + 1}`}
-                    className="w-full max-h-[55vh] object-contain transition-all duration-200"
-                  />
-                );
-              })()}
-
-              {/* Prev / Next navigation arrows */}
-              {selectedMemory.media_urls && selectedMemory.media_urls.length > 1 && (
+              {/* Prev / Next navigation arrows for photos */}
+              {viewerMode === 'photos' && selectedMemory.media_urls && selectedMemory.media_urls.length > 1 && (
                 <>
                   {activePhotoIndex > 0 && (
                     <button
@@ -570,8 +702,8 @@ export const MemoryGallery: React.FC = () => {
               )}
             </div>
 
-            {/* Clickable Thumbnail Strip */}
-            {selectedMemory.media_urls && selectedMemory.media_urls.length > 1 && (
+            {/* Clickable Thumbnail Strip for Photos */}
+            {viewerMode === 'photos' && selectedMemory.media_urls && selectedMemory.media_urls.length > 1 && (
               <div className="px-4 py-2 bg-slate-950/90 border-t border-b border-slate-800/80 flex items-center gap-2 overflow-x-auto">
                 {selectedMemory.media_urls.map((url, idx) => (
                   <button
@@ -653,7 +785,7 @@ export const MemoryGallery: React.FC = () => {
               <div className="space-y-1 min-w-0">
                 <h4 className="text-base font-bold text-white">Delete Memory Post?</h4>
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  Are you sure you want to permanently delete <strong className="text-slate-200">"{memoryToDelete.title}"</strong> and its {memoryToDelete.media_urls?.length || 1} photo(s)?
+                  Are you sure you want to permanently delete <strong className="text-slate-200">"{memoryToDelete.title}"</strong>?
                 </p>
               </div>
             </div>
@@ -680,6 +812,7 @@ export const MemoryGallery: React.FC = () => {
       )}
 
       <UploadMemoryModal isOpen={showUploadModal} onClose={() => setShowUploadModal(false)} />
+      <EditMemoryModal memory={editingMemory} isOpen={Boolean(editingMemory)} onClose={() => setEditingMemory(null)} />
       <MemorySettingsModal isOpen={showSettingsModal} onClose={() => setShowSettingsModal(false)} />
     </div>
   );

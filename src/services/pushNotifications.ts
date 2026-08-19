@@ -573,36 +573,90 @@ export async function sendPushNotification(payload: SendPushPayload): Promise<Se
 const recentPushDedupeMap = new Map<string, number>();
 
 /**
- * Dispatch Push Notification with deduplication guard
+ * Server-Side Push Notification Enqueuer
+ * Inserts rows into public.notification_events table with idempotency constraint.
+ * The server-side background processor automatically drains this queue and sends Web Push.
  */
-export async function sendDeduplicatedPush(
-  dedupeKey: string, 
-  payload: SendPushPayload
-): Promise<SendPushResult> {
-  const now = Date.now();
-  const lastSent = recentPushDedupeMap.get(dedupeKey);
-
-  // If sent within last 4 seconds with same key, silently skip duplicate
-  if (lastSent && (now - lastSent) < 4000) {
-    return { success: true, delivered: 0 };
+export async function queueServerNotificationEvents(params: {
+  eventType: 'snap' | 'chat' | 'money' | 'borrowed' | 'split_money' | 'plan' | 'note' | 'memory';
+  sourceId?: string;
+  actorUserId: string;
+  recipientUserIds: string[];
+  title: string;
+  body: string;
+  section: string;
+  icon?: string;
+  badge?: string;
+  image?: string;
+  tag?: string;
+  data?: Record<string, any>;
+}): Promise<{ success: boolean; queued: number; error?: string }> {
+  const recipients = params.recipientUserIds.filter(id => id && id !== params.actorUserId);
+  if (recipients.length === 0) {
+    return { success: true, queued: 0 };
   }
 
+  // Deduplication guard
+  const dedupeKey = `${params.eventType}_${params.sourceId || ''}_${recipients.sort().join('_')}`;
+  const now = Date.now();
+  const lastTime = recentPushDedupeMap.get(dedupeKey);
+  if (lastTime && now - lastTime < 4000) {
+    return { success: true, queued: 0 };
+  }
   recentPushDedupeMap.set(dedupeKey, now);
 
-  // Clean old keys
-  if (recentPushDedupeMap.size > 200) {
-    for (const [k, time] of recentPushDedupeMap.entries()) {
-      if (now - time > 30000) {
-        recentPushDedupeMap.delete(k);
+  const payload = {
+    title: params.title,
+    body: params.body,
+    section: params.section,
+    icon: params.icon || '/icons/icon-192.png',
+    badge: params.badge || '/icons/icon-192.png',
+    image: params.image || undefined,
+    tag: params.tag || `friend-os-${params.eventType}-${Date.now()}`,
+    data: params.data || {}
+  };
+
+  let queuedCount = 0;
+
+  // 1. Direct Supabase insert into notification_events table
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const rows = recipients.map(recipientId => ({
+        event_type: params.eventType,
+        source_id: params.sourceId || `src-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        actor_user_id: params.actorUserId,
+        recipient_user_id: recipientId,
+        payload: payload,
+        status: 'pending',
+        created_at: new Date().toISOString()
+      }));
+
+      const { error: insertErr } = await supabase
+        .from('notification_events')
+        .upsert(rows, { onConflict: 'event_type,source_id,recipient_user_id' });
+
+      if (!insertErr) {
+        queuedCount = rows.length;
+      } else {
+        console.warn('Queue notification_events notice:', insertErr.message);
       }
+    } catch (dbErr) {
+      console.warn('Supabase notification event insert notice:', dbErr);
     }
   }
 
-  return sendPushNotification(payload);
+  // 2. Non-blocking trigger to immediately drain server queue
+  try {
+    fetch('/api/process-notifications', { method: 'POST' }).catch(() => {});
+  } catch {
+    // Non-blocking
+  }
+
+  return { success: true, queued: queuedCount };
 }
 
 /**
- * 1. Money & Expense Push Notification
+ * 1. Money & Expense Push Notification (Server-Driven)
  */
 export async function dispatchMoneyPushNotification(params: {
   senderName: string;
@@ -610,11 +664,10 @@ export async function dispatchMoneyPushNotification(params: {
   recipientUserIds: string[];
   type?: 'split' | 'paid_for_you' | 'expense';
   itemTitle?: string;
+  sourceId?: string;
 }) {
   const recipients = params.recipientUserIds.filter(id => id && id !== params.senderId);
   if (recipients.length === 0) return;
-
-  const dedupeKey = `money_${params.senderId}_${recipients.sort().join('_')}_${params.itemTitle || ''}_${Math.floor(Date.now() / 5000)}`;
 
   let body = `Money update from ${params.senderName}`;
   if (params.type === 'paid_for_you') {
@@ -623,7 +676,10 @@ export async function dispatchMoneyPushNotification(params: {
     body = `New split expense from ${params.senderName}${params.itemTitle ? ` for "${params.itemTitle}"` : ''}.`;
   }
 
-  return sendDeduplicatedPush(dedupeKey, {
+  return queueServerNotificationEvents({
+    eventType: 'money',
+    sourceId: params.sourceId,
+    actorUserId: params.senderId,
     recipientUserIds: recipients,
     title: '💰 Friend OS',
     body: body,
@@ -638,19 +694,21 @@ export async function dispatchMoneyPushNotification(params: {
 }
 
 /**
- * 2. Borrowed Item / Money Push Notification
+ * 2. Borrowed Item / Money Push Notification (Server-Driven)
  */
 export async function dispatchBorrowedPushNotification(params: {
   senderName: string;
   senderId: string;
   recipientUserId: string;
   itemName: string;
+  sourceId?: string;
 }) {
   if (!params.recipientUserId || params.recipientUserId === params.senderId) return;
 
-  const dedupeKey = `borrowed_${params.senderId}_${params.recipientUserId}_${params.itemName}_${Math.floor(Date.now() / 5000)}`;
-
-  return sendDeduplicatedPush(dedupeKey, {
+  return queueServerNotificationEvents({
+    eventType: 'borrowed',
+    sourceId: params.sourceId,
+    actorUserId: params.senderId,
     recipientUserIds: [params.recipientUserId],
     title: '💸 Friend OS',
     body: `Borrowed item/money update from ${params.senderName}: "${params.itemName}"`,
@@ -665,20 +723,22 @@ export async function dispatchBorrowedPushNotification(params: {
 }
 
 /**
- * 3. Snap Message Push Notification
+ * 3. Snap Message Push Notification (Server-Driven)
  */
 export async function dispatchSnapPushNotification(params: {
   senderName: string;
   senderId: string;
   recipientUserIds: string[];
   isEveryone?: boolean;
+  sourceId?: string;
 }) {
   const recipients = params.recipientUserIds.filter(id => id && id !== params.senderId);
   if (recipients.length === 0) return;
 
-  const dedupeKey = `snap_${params.senderId}_${recipients.sort().join('_')}_${Math.floor(Date.now() / 5000)}`;
-
-  return sendDeduplicatedPush(dedupeKey, {
+  return queueServerNotificationEvents({
+    eventType: 'snap',
+    sourceId: params.sourceId,
+    actorUserId: params.senderId,
     recipientUserIds: recipients,
     title: '📸 Friend OS',
     body: `You received a new Snap from ${params.senderName}`,
@@ -693,20 +753,22 @@ export async function dispatchSnapPushNotification(params: {
 }
 
 /**
- * 4. Plan & Outing Push Notification
+ * 4. Plan & Outing Push Notification (Server-Driven)
  */
 export async function dispatchPlanPushNotification(params: {
   senderName: string;
   senderId: string;
   recipientUserIds: string[];
   planTitle: string;
+  sourceId?: string;
 }) {
   const recipients = params.recipientUserIds.filter(id => id && id !== params.senderId);
   if (recipients.length === 0) return;
 
-  const dedupeKey = `plan_${params.senderId}_${params.planTitle}_${Math.floor(Date.now() / 5000)}`;
-
-  return sendDeduplicatedPush(dedupeKey, {
+  return queueServerNotificationEvents({
+    eventType: 'plan',
+    sourceId: params.sourceId,
+    actorUserId: params.senderId,
     recipientUserIds: recipients,
     title: '📅 Friend OS',
     body: `${params.senderName} created a new plan: "${params.planTitle}"`,
@@ -721,20 +783,22 @@ export async function dispatchPlanPushNotification(params: {
 }
 
 /**
- * 5. Notes Uploaded Push Notification
+ * 5. Notes Uploaded Push Notification (Server-Driven)
  */
 export async function dispatchNotePushNotification(params: {
   senderName: string;
   senderId: string;
   recipientUserIds: string[];
   noteCaption: string;
+  sourceId?: string;
 }) {
   const recipients = params.recipientUserIds.filter(id => id && id !== params.senderId);
   if (recipients.length === 0) return;
 
-  const dedupeKey = `note_${params.senderId}_${params.noteCaption}_${Math.floor(Date.now() / 5000)}`;
-
-  return sendDeduplicatedPush(dedupeKey, {
+  return queueServerNotificationEvents({
+    eventType: 'note',
+    sourceId: params.sourceId,
+    actorUserId: params.senderId,
     recipientUserIds: recipients,
     title: '📚 Friend OS',
     body: `New Notes uploaded by ${params.senderName}: "${params.noteCaption}"`,
@@ -749,20 +813,22 @@ export async function dispatchNotePushNotification(params: {
 }
 
 /**
- * 6. Shared Memory Push Notification
+ * 6. Shared Memory Push Notification (Server-Driven)
  */
 export async function dispatchMemoryPushNotification(params: {
   senderName: string;
   senderId: string;
   recipientUserIds: string[];
   memoryTitle: string;
+  sourceId?: string;
 }) {
   const recipients = params.recipientUserIds.filter(id => id && id !== params.senderId);
   if (recipients.length === 0) return;
 
-  const dedupeKey = `memory_${params.senderId}_${params.memoryTitle}_${Math.floor(Date.now() / 5000)}`;
-
-  return sendDeduplicatedPush(dedupeKey, {
+  return queueServerNotificationEvents({
+    eventType: 'memory',
+    sourceId: params.sourceId,
+    actorUserId: params.senderId,
     recipientUserIds: recipients,
     title: '📸 Friend OS',
     body: `New Memory added by ${params.senderName}: "${params.memoryTitle}"`,
@@ -777,7 +843,7 @@ export async function dispatchMemoryPushNotification(params: {
 }
 
 /**
- * 7. Group / Direct Chat Message Push Notification
+ * 7. Group / Direct Chat Message Push Notification (Server-Driven)
  */
 export async function dispatchChatPushNotification(params: {
   senderName: string;
@@ -786,11 +852,10 @@ export async function dispatchChatPushNotification(params: {
   content: string;
   isDirect?: boolean;
   groupName?: string;
+  sourceId?: string;
 }) {
   const recipients = params.recipientUserIds.filter(id => id && id !== params.senderId);
   if (recipients.length === 0) return;
-
-  const dedupeKey = `chat_${params.senderId}_${recipients.sort().join('_')}_${params.content.slice(0, 30)}_${Math.floor(Date.now() / 4000)}`;
 
   const snippet = params.content.length > 50 ? `${params.content.substring(0, 50)}...` : params.content;
   const groupLabel = params.groupName || 'College Crew';
@@ -798,7 +863,10 @@ export async function dispatchChatPushNotification(params: {
     ? `${params.senderName}: ${snippet}` 
     : `${params.senderName} sent a new message in ${groupLabel}`;
 
-  return sendDeduplicatedPush(dedupeKey, {
+  return queueServerNotificationEvents({
+    eventType: 'chat',
+    sourceId: params.sourceId,
+    actorUserId: params.senderId,
     recipientUserIds: recipients,
     title: '💬 Friend OS',
     body: body,

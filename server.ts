@@ -28,9 +28,161 @@ try {
   console.warn("VAPID initialization notice:", err);
 }
 
+/**
+ * Server-Side Notification Events Queue Processor
+ * Drains public.notification_events table and dispatches Web Push to recipients
+ */
+async function processNotificationEventsQueue(supabaseClient: any) {
+  try {
+    // 1. Fetch pending notification events
+    const { data: events, error: fetchErr } = await supabaseClient
+      .from("notification_events")
+      .select("id, event_type, source_id, actor_user_id, recipient_user_id, payload, created_at")
+      .eq("status", "pending")
+      .order("created_at", { ascending: true })
+      .limit(30);
+
+    if (fetchErr) {
+      if (!fetchErr.message?.includes("does not exist") && !fetchErr.message?.includes("schema")) {
+        console.warn("Error fetching notification events:", fetchErr.message);
+      }
+      return { processed: 0, failed: 0 };
+    }
+
+    if (!events || events.length === 0) {
+      return { processed: 0, failed: 0 };
+    }
+
+    const eventIds = events.map((e: any) => e.id);
+    
+    // Mark them processing
+    await supabaseClient
+      .from("notification_events")
+      .update({ status: "processing" })
+      .in("id", eventIds);
+
+    let processedCount = 0;
+    let failedCount = 0;
+
+    for (const event of events) {
+      try {
+        const recipientUserId = event.recipient_user_id;
+        const payload = typeof event.payload === "string" ? JSON.parse(event.payload) : (event.payload || {});
+
+        // Fetch recipient's push subscriptions using Service Role
+        const { data: subs, error: subErr } = await supabaseClient
+          .from("push_subscriptions")
+          .select("id, endpoint, p256dh, auth")
+          .eq("user_id", recipientUserId);
+
+        if (subErr || !subs || subs.length === 0) {
+          // No active push device registered for this recipient
+          await supabaseClient
+            .from("notification_events")
+            .update({
+              status: "processed",
+              processed_at: new Date().toISOString(),
+              error_message: subs?.length === 0 ? "No active push device registered for recipient" : (subErr?.message || "")
+            })
+            .eq("id", event.id);
+          processedCount++;
+          continue;
+        }
+
+        const pushPayload = JSON.stringify({
+          title: payload.title || "Friend OS",
+          body: payload.body || "You have a new update in Friend OS",
+          section: payload.section || "home",
+          icon: payload.icon || "/icons/icon-192.png",
+          badge: payload.badge || "/icons/icon-192.png",
+          image: payload.image || undefined,
+          tag: payload.tag || `friend-os-${event.event_type}-${Date.now()}`,
+          data: {
+            section: payload.section || "home",
+            url: `/?tab=${payload.section || "home"}`,
+            ...(payload.data || {}),
+            eventId: event.id,
+            sourceId: event.source_id,
+            eventType: event.event_type
+          }
+        });
+
+        const expiredSubIds: string[] = [];
+
+        await Promise.all(
+          subs.map(async (sub: any) => {
+            if (!sub.endpoint || !sub.p256dh || !sub.auth) return;
+            const pushSub = {
+              endpoint: sub.endpoint,
+              keys: { p256dh: sub.p256dh, auth: sub.auth }
+            };
+            try {
+              await webpush.sendNotification(pushSub, pushPayload, {
+                TTL: 86400,
+                urgency: "high"
+              });
+            } catch (err: any) {
+              const code = err?.statusCode;
+              if (code === 410 || code === 404) {
+                if (sub.id) expiredSubIds.push(sub.id);
+              }
+            }
+          })
+        );
+
+        if (expiredSubIds.length > 0) {
+          await supabaseClient.from("push_subscriptions").delete().in("id", expiredSubIds);
+        }
+
+        await supabaseClient
+          .from("notification_events")
+          .update({
+            status: "processed",
+            processed_at: new Date().toISOString()
+          })
+          .eq("id", event.id);
+
+        processedCount++;
+      } catch (evtErr: any) {
+        failedCount++;
+        await supabaseClient
+          .from("notification_events")
+          .update({
+            status: "failed",
+            error_message: evtErr?.message || "Error during push delivery"
+          })
+          .eq("id", event.id);
+      }
+    }
+
+    return { processed: processedCount, failed: failedCount };
+  } catch (err: any) {
+    console.warn("processNotificationEventsQueue error:", err?.message);
+    return { processed: 0, failed: 0 };
+  }
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
+
+  const supabaseClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false },
+  });
+
+  // Start background queue daemon that runs every 2.5 seconds
+  let isQueueProcessing = false;
+  setInterval(async () => {
+    if (isQueueProcessing) return;
+    isQueueProcessing = true;
+    try {
+      await processNotificationEventsQueue(supabaseClient);
+    } catch {
+      // safe loop
+    } finally {
+      isQueueProcessing = false;
+    }
+  }, 2500);
 
   // JSON Body Parser for API requests
   app.use(express.json({ limit: "5mb" }));
@@ -38,6 +190,16 @@ async function startServer() {
   // Health Check
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", time: new Date().toISOString() });
+  });
+
+  // Trigger Immediate Queue Drain
+  app.all("/api/process-notifications", async (_req, res) => {
+    try {
+      const result = await processNotificationEventsQueue(supabaseClient);
+      res.json({ success: true, ...result });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message });
+    }
   });
 
   // Push Notification Dispatch Gateway
