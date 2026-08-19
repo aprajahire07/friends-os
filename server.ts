@@ -57,10 +57,9 @@ async function startServer() {
         data = {}
       } = req.body || {};
 
-      // Authenticate user with Supabase
+      // Initialize server Supabase client
       const supabaseClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
         auth: { persistSession: false },
-        global: authHeader ? { headers: { Authorization: authHeader } } : undefined
       });
 
       // Fetch subscriptions from database
@@ -73,8 +72,12 @@ async function startServer() {
       } else if (Array.isArray(recipient_user_ids) && recipient_user_ids.length > 0) {
         query = query.in("user_id", recipient_user_ids);
       } else {
-        return res.status(400).json({ 
-          error: "No recipient user IDs provided and 'all' is false." 
+        return res.json({ 
+          success: true,
+          delivered: 0,
+          failed: 0,
+          cleaned: 0,
+          message: "No recipients specified." 
         });
       }
 
@@ -82,9 +85,12 @@ async function startServer() {
 
       if (subError) {
         console.warn("Failed to fetch push subscriptions from database:", subError.message);
-        return res.status(500).json({ 
-          error: "Failed to fetch push subscriptions", 
-          details: subError.message 
+        return res.json({ 
+          success: false,
+          delivered: 0,
+          failed: 0,
+          cleaned: 0,
+          error: `Database error: ${subError.message}. Please verify the push_subscriptions table exists in Supabase.`
         });
       }
 

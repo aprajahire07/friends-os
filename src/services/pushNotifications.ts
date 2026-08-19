@@ -289,14 +289,22 @@ export async function sendPushNotification(payload: SendPushPayload): Promise<Se
       body: JSON.stringify(requestBody)
     });
 
-    if (response.ok) {
-      const data = await response.json();
-      return {
-        success: true,
-        delivered: data?.delivered || 0,
-        failed: data?.failed || 0,
-        cleaned: data?.cleaned || 0
-      };
+    const data = await response.json().catch(() => null);
+
+    if (data) {
+      if (data.success) {
+        return {
+          success: true,
+          delivered: data?.delivered || 0,
+          failed: data?.failed || 0,
+          cleaned: data?.cleaned || 0
+        };
+      } else if (data.error) {
+        return {
+          success: false,
+          error: data.error
+        };
+      }
     }
   } catch (apiErr) {
     console.info('Native /api/send-push gateway attempt note, checking Edge Function fallback:', apiErr);
