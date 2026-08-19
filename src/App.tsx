@@ -253,7 +253,7 @@ export function AppContent() {
         onOpenInstallPWA={() => setShowPWAInstallModal(true)}
       />
 
-      <div className="flex-1 flex max-w-7xl w-full mx-auto">
+      <div className="flex-1 flex max-w-7xl w-full mx-auto min-h-0">
         <Sidebar
           activeTab={activeTab}
           setActiveTab={setActiveTab}
@@ -262,7 +262,9 @@ export function AppContent() {
         />
 
         <main className={`flex-1 overflow-x-hidden ${
-          activeTab === 'chat' ? 'p-1.5 sm:p-2 md:p-4 flex flex-col' : 'p-4 md:p-6 pb-24 md:pb-6'
+          activeTab === 'chat' 
+            ? 'p-1 sm:p-2 md:p-4 flex flex-col h-[calc(100dvh-3.75rem)] md:h-[calc(100vh-4rem)] pb-[calc(4.25rem+env(safe-area-inset-bottom,0px))] md:pb-4 min-h-0' 
+            : 'p-4 md:p-6 pb-24 md:pb-6'
         }`}>
           <ErrorBoundary key={activeTab} fallbackTitle="View Error">
             {activeTab === 'home' && (

@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { BorrowedItem } from '../types';
+import { dispatchBorrowedPushNotification } from './pushNotifications';
 
 function isValidUUID(str?: string | null): boolean {
   if (!str) return false;
@@ -112,6 +113,21 @@ export async function addBorrowedItemToSupabase(item: {
     if (error) {
       console.info('Supabase borrowed items sync note (RLS/policy):', error.message);
       return null;
+    }
+
+    // Trigger asynchronous Web Push to borrower
+    try {
+      const recipientId = item.borrower_id !== item.owner_id ? item.borrower_id : item.owner_id;
+      if (recipientId) {
+        dispatchBorrowedPushNotification({
+          senderName: 'A friend',
+          senderId: item.owner_id,
+          recipientUserId: recipientId,
+          itemName: item.item_name
+        }).catch(() => {});
+      }
+    } catch {
+      // Non-blocking
     }
 
     return {

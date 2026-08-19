@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { SnapMessage } from '../types';
+import { dispatchSnapPushNotification } from './pushNotifications';
 import { 
   validateUploadFile, 
   uploadFileWithBucketRotation, 
@@ -240,6 +241,18 @@ export async function sendSnapToSupabase(
       status: r.status || 'sent',
       sender_profile: null
     }));
+
+    // Trigger asynchronous Web Push to all recipients (non-blocking)
+    try {
+      dispatchSnapPushNotification({
+        senderName: 'A friend',
+        senderId: senderId,
+        recipientUserIds: recipientIds,
+        isEveryone: isEveryone || recipientIds.length > 1
+      }).catch(() => {});
+    } catch {
+      // Non-blocking
+    }
 
     return { 
       success: true, 

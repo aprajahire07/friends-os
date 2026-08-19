@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { ChatMessage, ChatCategory } from '../types';
+import { dispatchChatPushNotification } from './pushNotifications';
 
 function isValidUUID(str?: string | null): boolean {
   if (!str) return false;
@@ -130,51 +131,85 @@ export async function sendMessageToSupabase(msg: Partial<ChatMessage>): Promise<
       .select()
       .single();
 
+    let resultMessage: ChatMessage | null = null;
+
     if (!primaryErr && primaryData) {
-      return {
+      resultMessage = {
         ...mapMessageRow(primaryData),
         sender: msg.sender,
         recipient: msg.recipient
       };
-    }
+    } else {
+      // Fallback attempt: If recipient_id column doesn't exist, insert without recipient_id column
+      const fallbackPayload = { ...payloadWithRecipient };
+      delete fallbackPayload.recipient_id;
 
-    // Fallback attempt: If recipient_id column doesn't exist, insert without recipient_id column
-    const fallbackPayload = { ...payloadWithRecipient };
-    delete fallbackPayload.recipient_id;
-
-    const { data: fbData, error: fbErr } = await supabase
-      .from('messages')
-      .insert([fallbackPayload])
-      .select()
-      .single();
-
-    if (!fbErr && fbData) {
-      return {
-        ...mapMessageRow(fbData),
-        sender: msg.sender,
-        recipient: msg.recipient
-      };
-    }
-
-    // RLS Retry with authUserId if needed
-    if (authUserId && effectiveSenderId !== authUserId) {
-      fallbackPayload.sender_id = authUserId;
-      const { data: retryData, error: retryErr } = await supabase
+      const { data: fbData, error: fbErr } = await supabase
         .from('messages')
         .insert([fallbackPayload])
         .select()
         .single();
 
-      if (!retryErr && retryData) {
-        return {
-          ...mapMessageRow(retryData),
+      if (!fbErr && fbData) {
+        resultMessage = {
+          ...mapMessageRow(fbData),
           sender: msg.sender,
           recipient: msg.recipient
         };
+      } else if (authUserId && effectiveSenderId !== authUserId) {
+        // RLS Retry with authUserId if needed
+        fallbackPayload.sender_id = authUserId;
+        const { data: retryData, error: retryErr } = await supabase
+          .from('messages')
+          .insert([fallbackPayload])
+          .select()
+          .single();
+
+        if (!retryErr && retryData) {
+          resultMessage = {
+            ...mapMessageRow(retryData),
+            sender: msg.sender,
+            recipient: msg.recipient
+          };
+        }
       }
     }
 
-    console.warn('Supabase message send notice:', primaryErr?.message || fbErr?.message);
+    // Trigger asynchronous Web Push (non-blocking)
+    if (resultMessage) {
+      try {
+        const senderName = msg.sender?.full_name || 'A friend';
+        if (msg.recipient_id) {
+          // Direct message
+          dispatchChatPushNotification({
+            senderName,
+            senderId: effectiveSenderId,
+            recipientUserIds: [msg.recipient_id],
+            content: msg.content || ''
+          }).catch(() => {});
+        } else {
+          // Group message: notify other members
+          supabase.from('profiles').select('id').then(({ data: allProfiles }) => {
+            const recipientIds = (allProfiles || [])
+              .map((p: any) => p.id)
+              .filter((id: string) => id && id !== effectiveSenderId);
+            if (recipientIds.length > 0) {
+              dispatchChatPushNotification({
+                senderName,
+                senderId: effectiveSenderId,
+                recipientUserIds: recipientIds,
+                content: msg.content || ''
+              }).catch(() => {});
+            }
+          });
+        }
+      } catch {
+        // Non-blocking
+      }
+      return resultMessage;
+    }
+
+    console.warn('Supabase message send notice:', primaryErr?.message);
     return null;
   } catch (err: any) {
     console.info('Message send notice:', err?.message || err);

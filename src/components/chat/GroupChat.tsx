@@ -234,7 +234,7 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
   }, [otherProfiles, searchFriendQuery]);
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-8.8rem)] md:h-[calc(100vh-6rem)] w-full bg-slate-900 border border-slate-800/90 rounded-2xl md:rounded-3xl overflow-hidden shadow-2xl relative select-none">
+    <div className="flex flex-col h-full flex-1 min-h-0 w-full bg-slate-900 border border-slate-800/90 rounded-2xl md:rounded-3xl overflow-hidden shadow-2xl relative select-none">
       {/* Hidden File Inputs */}
       <input
         ref={photoInputRef}
@@ -388,7 +388,7 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
       </div>
 
       {/* MAIN BODY VIEW */}
-      <div className="flex-1 flex overflow-hidden relative">
+      <div className="flex-1 min-h-0 flex overflow-hidden relative">
         
         {/* VIEW 1: GROUP CHAT */}
         {activeMode === 'group' && (
@@ -654,11 +654,15 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
 
       {/* BOTTOM INPUT BAR */}
       {(activeMode === 'group' || (activeMode === 'private' && selectedFriendId)) && (
-        <form onSubmit={handleSendMessage} className="p-2.5 sm:p-3 bg-slate-950 border-t border-slate-800/90 flex items-center gap-2 shrink-0">
+        <form 
+          id="chat-message-composer"
+          onSubmit={handleSendMessage} 
+          className="p-2 sm:p-3 bg-slate-950 border-t border-slate-800/90 flex items-center gap-2 shrink-0 z-20"
+        >
           <button
             type="button"
             onClick={() => setShowAttachMenu(!showAttachMenu)}
-            className={`p-2 rounded-xl border transition-colors ${
+            className={`p-2.5 rounded-xl border transition-colors shrink-0 touch-manipulation min-w-[40px] min-h-[40px] flex items-center justify-center ${
               attachedFile ? 'bg-indigo-950 border-indigo-500 text-indigo-300' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
             }`}
             title="Attach file"
@@ -670,7 +674,7 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
             <button
               type="button"
               onClick={() => setShowMentions(!showMentions)}
-              className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-indigo-400 transition-colors"
+              className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-indigo-400 transition-colors shrink-0 touch-manipulation min-w-[40px] min-h-[40px] flex items-center justify-center"
               title="Mention @Friend"
             >
               <AtSign className="w-4 h-4" />
@@ -678,6 +682,7 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
           )}
 
           <input
+            id="chat-text-input"
             type="text"
             placeholder={
               activeMode === 'group'
@@ -686,18 +691,25 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
             }
             value={inputText}
             onChange={e => setInputText(e.target.value)}
-            className="flex-1 px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
+            onFocus={() => {
+              setTimeout(() => {
+                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+              }, 120);
+            }}
+            className="flex-1 min-w-0 px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 min-h-[40px]"
           />
 
           <button
+            id="chat-send-btn"
             type="submit"
             disabled={isUploading || (!inputText.trim() && !attachedFile)}
-            className="px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-md flex items-center gap-1.5 transition-all disabled:opacity-40 shrink-0"
+            className="px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-md flex items-center justify-center gap-1.5 transition-all disabled:opacity-40 shrink-0 touch-manipulation min-w-[44px] sm:min-w-[70px] min-h-[40px]"
+            title="Send message"
           >
             {isUploading ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
-              <Send className="w-3.5 h-3.5" />
+              <Send className="w-4 h-4" />
             )}
             <span className="hidden sm:inline">Send</span>
           </button>

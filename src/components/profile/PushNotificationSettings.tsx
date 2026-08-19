@@ -3,12 +3,10 @@ import {
   Bell, 
   BellRing, 
   BellOff, 
-  CheckCircle2, 
+  Check, 
   AlertCircle, 
-  Smartphone, 
-  RefreshCw, 
-  ShieldCheck,
-  ExternalLink
+  RefreshCw,
+  Smartphone
 } from 'lucide-react';
 import { 
   isPushNotificationSupported, 
@@ -16,7 +14,7 @@ import {
   subscribeUserToPush, 
   unsubscribeUserFromPush, 
   showLocalTestNotification,
-  PushPermissionStatus
+  PushPermissionStatus 
 } from '../../services/pushNotifications';
 import { useToast } from '../ui/Toast';
 
@@ -29,22 +27,32 @@ export const PushNotificationSettings: React.FC<PushNotificationSettingsProps> =
   const [permissionStatus, setPermissionStatus] = useState<PushPermissionStatus>('default');
   const [isSubscribed, setIsSubscribed] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [showDetails, setShowDetails] = useState<boolean>(false);
 
-  const checkStatus = () => {
+  const checkStatus = async () => {
     const status = getPushPermissionState();
     setPermissionStatus(status);
+    
+    // Automatically detect granted state in browser
     const locallyEnabled = localStorage.getItem(`friend_os_push_enabled_${userId}`) === 'true';
-    setIsSubscribed(status === 'granted' && locallyEnabled);
+    if (status === 'granted') {
+      setIsSubscribed(locallyEnabled || true);
+    } else {
+      setIsSubscribed(false);
+    }
   };
 
   useEffect(() => {
     checkStatus();
   }, [userId]);
 
-  const handleTogglePush = async () => {
+  const handleToggle = async () => {
     if (!isPushNotificationSupported()) {
-      showToast('Unsupported Browser', 'Web Push is not supported on this browser or iOS version.', 'error');
+      showToast('Unsupported Browser', 'Web Push is not supported on this browser.', 'info');
+      return;
+    }
+
+    if (permissionStatus === 'denied') {
+      showToast('Notifications Blocked', 'Notifications are blocked in browser settings. Please allow notifications from your browser URL lock icon.', 'info');
       return;
     }
 
@@ -52,155 +60,139 @@ export const PushNotificationSettings: React.FC<PushNotificationSettingsProps> =
 
     try {
       if (isSubscribed) {
-        // Unsubscribe
         const res = await unsubscribeUserFromPush(userId);
         if (res.success) {
           setIsSubscribed(false);
           setPermissionStatus(getPushPermissionState());
-          showToast('Push Notifications Disabled', 'You will no longer receive system push alerts on this device.', 'info');
+          showToast('Notifications Disabled', 'Push notifications turned off for this device.', 'info');
         } else {
-          showToast('Error', res.error || 'Failed to unsubscribe.', 'error');
+          showToast('Error', res.error || 'Failed to disable.', 'error');
         }
       } else {
-        // Subscribe
         const res = await subscribeUserToPush(userId);
         if (res.success) {
           setIsSubscribed(true);
           setPermissionStatus('granted');
-          showToast('Notifications Activated! 🔔', 'Friend OS will now send live updates, snaps & plans to your phone system tray.', 'success');
+          showToast('Notifications Enabled ✓', 'Friend OS alerts are now active on your device.', 'success');
         } else {
           setPermissionStatus(res.status);
           if (res.status === 'denied') {
-            showToast('Permission Blocked', 'Please tap the lock icon in your browser URL bar to allow notifications.', 'error');
+            showToast('Notifications Blocked', 'Notifications are blocked in browser settings.', 'info');
           } else {
-            showToast('Subscription Note', res.error || 'Could not register push token.', 'info');
+            showToast('Notice', res.error || 'Could not enable push.', 'info');
           }
         }
       }
     } catch (err: any) {
-      showToast('Error', err?.message || 'Failed to update push settings.', 'error');
+      showToast('Error', err?.message || 'Failed to update setting.', 'error');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleTestNotification = async () => {
+  const handleTestAlert = async (e: React.MouseEvent) => {
+    e.stopPropagation();
     const ok = await showLocalTestNotification();
     if (ok) {
-      showToast('Test Notification Sent!', 'Check your phone or browser notification tray.', 'success');
-    } else {
-      showToast('Notification Blocked', 'Please enable notifications first to test.', 'info');
+      showToast('Test Alert Sent!', 'Check your phone notification tray.', 'success');
     }
   };
 
-  if (!isPushNotificationSupported()) {
-    return (
-      <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex items-start gap-3 text-xs text-slate-400">
-        <BellOff className="w-5 h-5 text-slate-500 shrink-0 mt-0.5" />
-        <div>
-          <div className="font-bold text-slate-300">System Notifications Not Supported</div>
-          <p className="text-[11px] text-slate-400 mt-0.5">
-            This browser does not support background Web Push. If you are on iPhone/iOS, add Friend OS to your Home Screen (Share → Add to Home Screen) to enable push notifications.
-          </p>
-        </div>
-      </div>
-    );
-  }
+  const isUnsupported = !isPushNotificationSupported();
+  const isBlocked = permissionStatus === 'denied';
 
   return (
-    <div className="p-5 rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-950/20 to-slate-900 border border-slate-800 shadow-xl space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 border ${
+    <div className="space-y-1.5">
+      {/* Compact 1-Row Settings Item */}
+      <div className="px-4 py-3 rounded-2xl bg-slate-900 border border-slate-800/90 flex items-center justify-between gap-3 transition-colors hover:border-slate-700/80">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
             isSubscribed 
-              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-              : permissionStatus === 'denied'
-              ? 'bg-rose-500/10 border-rose-500/30 text-rose-400'
-              : 'bg-indigo-500/10 border-indigo-500/30 text-indigo-400'
+              ? 'bg-emerald-500/10 text-emerald-400' 
+              : isBlocked 
+              ? 'bg-rose-500/10 text-rose-400' 
+              : 'bg-slate-800 text-slate-400'
           }`}>
             {isSubscribed ? (
-              <BellRing className="w-5 h-5 animate-pulse" />
-            ) : permissionStatus === 'denied' ? (
-              <BellOff className="w-5 h-5" />
+              <BellRing className="w-4 h-4" />
+            ) : isBlocked ? (
+              <BellOff className="w-4 h-4" />
             ) : (
-              <Bell className="w-5 h-5" />
+              <Bell className="w-4 h-4" />
             )}
           </div>
 
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <h4 className="text-xs font-black text-white uppercase tracking-wider">
-                Phone Push Notifications
-              </h4>
-              <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider border ${
-                isSubscribed
-                  ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
-                  : permissionStatus === 'denied'
-                  ? 'bg-rose-500/15 border-rose-500/30 text-rose-400'
-                  : 'bg-slate-800 border-slate-700 text-slate-400'
-              }`}>
-                {isSubscribed ? 'Active & Subscribed' : permissionStatus === 'denied' ? 'Blocked' : 'Not Enabled'}
-              </span>
+          <div className="min-w-0">
+            <div className="text-xs font-bold text-white flex items-center gap-1.5 truncate">
+              <span>Push Notifications</span>
             </div>
-
-            <p className="text-xs text-slate-300 leading-relaxed">
-              Allow Friend OS to send important updates, messages, snaps, plans and money notifications to your phone.
+            <p className="text-[10px] text-slate-400 truncate">
+              {isSubscribed 
+                ? 'Device alerts active' 
+                : isBlocked 
+                ? 'Blocked in browser' 
+                : isUnsupported 
+                ? 'Unsupported on this device' 
+                : 'Phone lock screen alerts'}
             </p>
           </div>
         </div>
 
-        {/* Action Toggle / Enable Button */}
-        <button
-          onClick={handleTogglePush}
-          disabled={isLoading}
-          className={`shrink-0 px-4 py-2 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 shadow-md ${
-            isSubscribed
-              ? 'bg-slate-800 hover:bg-slate-700 text-rose-400 border border-slate-700'
-              : permissionStatus === 'denied'
-              ? 'bg-rose-950/80 hover:bg-rose-900 border border-rose-800 text-rose-200'
-              : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/30'
-          }`}
-        >
-          {isLoading ? (
-            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+        {/* Right-hand Compact Status / Action Button */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {isUnsupported ? (
+            <span className="px-2.5 py-1 rounded-xl bg-slate-800 text-slate-500 text-[11px] font-semibold">
+              Unsupported
+            </span>
+          ) : isBlocked ? (
+            <button
+              onClick={() => showToast('Browser Blocked', 'Notifications are blocked in browser settings. Tap the padlock icon in your browser URL bar to allow.', 'info')}
+              className="px-2.5 py-1 rounded-xl bg-rose-950/60 border border-rose-900 text-rose-300 text-[11px] font-bold flex items-center gap-1"
+            >
+              <AlertCircle className="w-3 h-3" />
+              <span>Blocked</span>
+            </button>
           ) : isSubscribed ? (
-            <span>Disable</span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={handleTestAlert}
+                title="Send quick test alert to this phone"
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={handleToggle}
+                disabled={isLoading}
+                title="Click to disable"
+                className="px-2.5 py-1 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25 text-[11px] font-bold flex items-center gap-1 transition-all"
+              >
+                <Check className="w-3 h-3" />
+                <span>Enabled ✓</span>
+              </button>
+            </div>
           ) : (
-            <span>Enable Phone Notifications</span>
+            <button
+              onClick={handleToggle}
+              disabled={isLoading}
+              className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-sm shadow-indigo-600/20 transition-all flex items-center gap-1"
+            >
+              {isLoading ? (
+                <RefreshCw className="w-3 h-3 animate-spin" />
+              ) : (
+                <span>Enable</span>
+              )}
+            </button>
           )}
-        </button>
+        </div>
       </div>
 
-      {/* When Granted & Active: Test Notification & Info */}
-      {isSubscribed && (
-        <div className="pt-3 border-t border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-          <div className="flex items-center gap-1.5 text-emerald-400 font-semibold text-[11px]">
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>Ready for incoming Snaps, Money & Plan alerts</span>
-          </div>
-
-          <button
-            onClick={handleTestNotification}
-            type="button"
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 font-bold text-[11px] border border-indigo-500/40 transition-colors self-start sm:self-auto"
-          >
-            <Smartphone className="w-3.5 h-3.5" />
-            <span>Send Test Alert to Device</span>
-          </button>
-        </div>
-      )}
-
-      {/* When Blocked in Browser */}
-      {permissionStatus === 'denied' && (
-        <div className="p-3 rounded-xl bg-rose-950/60 border border-rose-900/80 text-rose-200 text-xs flex items-start gap-2.5">
-          <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-          <div className="space-y-0.5 text-[11px]">
-            <span className="font-bold">Notifications are blocked in your browser settings.</span>
-            <p className="text-slate-300">
-              To fix: Tap the <strong>Padlock / Site settings</strong> icon in your browser search bar and set <em>Notifications</em> to <strong>Allow</strong>.
-            </p>
-          </div>
-        </div>
+      {/* Short help text only if blocked in browser */}
+      {isBlocked && (
+        <p className="px-2 text-[10px] text-rose-400">
+          Notifications are blocked in browser settings. Tap the lock icon in the address bar to unblock.
+        </p>
       )}
     </div>
   );

@@ -63,7 +63,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToHome }) 
 
   const tabs = [
     { id: 'users' as AdminTab, label: 'User Management', icon: Users },
-    { id: 'push' as AdminTab, label: '📢 Push Broadcasts', icon: Radio },
+    { id: 'push' as AdminTab, label: '📢 Push Notifications', icon: Radio },
     { id: 'notes' as AdminTab, label: 'Notes Master Access', icon: FileText },
     { id: 'memories' as AdminTab, label: 'Memories Security', icon: Lock },
     { id: 'money' as AdminTab, label: 'Money History', icon: Wallet },

@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { Memory, MemoryPhoto } from '../types';
+import { dispatchMemoryPushNotification } from './pushNotifications';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -255,6 +256,25 @@ export async function addMemoryToSupabase(memory: {
           // ignore
         }
       }
+    }
+
+    // Trigger asynchronous Web Push to other group friends
+    try {
+      const { data: allProfiles } = await supabase.from('profiles').select('id');
+      const recipientIds = (allProfiles || [])
+        .map((p: any) => p.id)
+        .filter((id: string) => id && id !== effectiveCreatorId);
+
+      if (recipientIds.length > 0) {
+        dispatchMemoryPushNotification({
+          senderName: 'A friend',
+          senderId: effectiveCreatorId,
+          recipientUserIds: recipientIds,
+          memoryTitle: memory.title.trim()
+        }).catch(() => {});
+      }
+    } catch {
+      // Non-blocking
     }
 
     return {

@@ -308,6 +308,244 @@ export async function sendPushNotification(payload: SendPushPayload): Promise<Se
 }
 
 /**
+ * In-memory deduplication cache to prevent duplicate push notifications for the same event
+ */
+const recentPushDedupeMap = new Map<string, number>();
+
+/**
+ * Dispatch Push Notification with deduplication guard
+ */
+export async function sendDeduplicatedPush(
+  dedupeKey: string, 
+  payload: SendPushPayload
+): Promise<SendPushResult> {
+  const now = Date.now();
+  const lastSent = recentPushDedupeMap.get(dedupeKey);
+
+  // If sent within last 4 seconds with same key, silently skip duplicate
+  if (lastSent && (now - lastSent) < 4000) {
+    return { success: true, delivered: 0 };
+  }
+
+  recentPushDedupeMap.set(dedupeKey, now);
+
+  // Clean old keys
+  if (recentPushDedupeMap.size > 200) {
+    for (const [k, time] of recentPushDedupeMap.entries()) {
+      if (now - time > 30000) {
+        recentPushDedupeMap.delete(k);
+      }
+    }
+  }
+
+  return sendPushNotification(payload);
+}
+
+/**
+ * 1. Money & Expense Push Notification
+ */
+export async function dispatchMoneyPushNotification(params: {
+  senderName: string;
+  senderId: string;
+  recipientUserIds: string[];
+  type?: 'split' | 'paid_for_you' | 'expense';
+  itemTitle?: string;
+}) {
+  const recipients = params.recipientUserIds.filter(id => id && id !== params.senderId);
+  if (recipients.length === 0) return;
+
+  const dedupeKey = `money_${params.senderId}_${recipients.sort().join('_')}_${params.itemTitle || ''}_${Math.floor(Date.now() / 5000)}`;
+
+  let body = `Money update from ${params.senderName}`;
+  if (params.type === 'paid_for_you') {
+    body = `${params.senderName} paid for you.`;
+  } else if (params.type === 'split') {
+    body = `New split expense from ${params.senderName}${params.itemTitle ? ` for "${params.itemTitle}"` : ''}.`;
+  }
+
+  return sendDeduplicatedPush(dedupeKey, {
+    recipientUserIds: recipients,
+    title: '💰 Friend OS',
+    body: body,
+    section: 'money',
+    tag: `friend-os-money-${Date.now()}`,
+    data: {
+      section: 'money',
+      senderName: params.senderName,
+      type: params.type || 'money'
+    }
+  });
+}
+
+/**
+ * 2. Borrowed Item / Money Push Notification
+ */
+export async function dispatchBorrowedPushNotification(params: {
+  senderName: string;
+  senderId: string;
+  recipientUserId: string;
+  itemName: string;
+}) {
+  if (!params.recipientUserId || params.recipientUserId === params.senderId) return;
+
+  const dedupeKey = `borrowed_${params.senderId}_${params.recipientUserId}_${params.itemName}_${Math.floor(Date.now() / 5000)}`;
+
+  return sendDeduplicatedPush(dedupeKey, {
+    recipientUserIds: [params.recipientUserId],
+    title: '💸 Friend OS',
+    body: `Borrowed item/money update from ${params.senderName}: "${params.itemName}"`,
+    section: 'borrowed',
+    tag: `friend-os-borrowed-${Date.now()}`,
+    data: {
+      section: 'borrowed',
+      senderName: params.senderName,
+      itemName: params.itemName
+    }
+  });
+}
+
+/**
+ * 3. Snap Message Push Notification
+ */
+export async function dispatchSnapPushNotification(params: {
+  senderName: string;
+  senderId: string;
+  recipientUserIds: string[];
+  isEveryone?: boolean;
+}) {
+  const recipients = params.recipientUserIds.filter(id => id && id !== params.senderId);
+  if (recipients.length === 0) return;
+
+  const dedupeKey = `snap_${params.senderId}_${recipients.sort().join('_')}_${Math.floor(Date.now() / 5000)}`;
+
+  return sendDeduplicatedPush(dedupeKey, {
+    recipientUserIds: recipients,
+    title: '📸 Friend OS',
+    body: `You received a new Snap from ${params.senderName}`,
+    section: 'snaps',
+    tag: `friend-os-snaps-${Date.now()}`,
+    data: {
+      section: 'snaps',
+      senderName: params.senderName,
+      isEveryone: Boolean(params.isEveryone)
+    }
+  });
+}
+
+/**
+ * 4. Plan & Outing Push Notification
+ */
+export async function dispatchPlanPushNotification(params: {
+  senderName: string;
+  senderId: string;
+  recipientUserIds: string[];
+  planTitle: string;
+}) {
+  const recipients = params.recipientUserIds.filter(id => id && id !== params.senderId);
+  if (recipients.length === 0) return;
+
+  const dedupeKey = `plan_${params.senderId}_${params.planTitle}_${Math.floor(Date.now() / 5000)}`;
+
+  return sendDeduplicatedPush(dedupeKey, {
+    recipientUserIds: recipients,
+    title: '📅 Friend OS',
+    body: `${params.senderName} created a new plan: "${params.planTitle}"`,
+    section: 'plans',
+    tag: `friend-os-plans-${Date.now()}`,
+    data: {
+      section: 'plans',
+      senderName: params.senderName,
+      planTitle: params.planTitle
+    }
+  });
+}
+
+/**
+ * 5. Notes Uploaded Push Notification
+ */
+export async function dispatchNotePushNotification(params: {
+  senderName: string;
+  senderId: string;
+  recipientUserIds: string[];
+  noteCaption: string;
+}) {
+  const recipients = params.recipientUserIds.filter(id => id && id !== params.senderId);
+  if (recipients.length === 0) return;
+
+  const dedupeKey = `note_${params.senderId}_${params.noteCaption}_${Math.floor(Date.now() / 5000)}`;
+
+  return sendDeduplicatedPush(dedupeKey, {
+    recipientUserIds: recipients,
+    title: '📚 Friend OS',
+    body: `New Notes uploaded by ${params.senderName}: "${params.noteCaption}"`,
+    section: 'notes',
+    tag: `friend-os-notes-${Date.now()}`,
+    data: {
+      section: 'notes',
+      senderName: params.senderName,
+      caption: params.noteCaption
+    }
+  });
+}
+
+/**
+ * 6. Shared Memory Push Notification
+ */
+export async function dispatchMemoryPushNotification(params: {
+  senderName: string;
+  senderId: string;
+  recipientUserIds: string[];
+  memoryTitle: string;
+}) {
+  const recipients = params.recipientUserIds.filter(id => id && id !== params.senderId);
+  if (recipients.length === 0) return;
+
+  const dedupeKey = `memory_${params.senderId}_${params.memoryTitle}_${Math.floor(Date.now() / 5000)}`;
+
+  return sendDeduplicatedPush(dedupeKey, {
+    recipientUserIds: recipients,
+    title: '📸 Friend OS',
+    body: `New Memory added by ${params.senderName}: "${params.memoryTitle}"`,
+    section: 'memories',
+    tag: `friend-os-memories-${Date.now()}`,
+    data: {
+      section: 'memories',
+      senderName: params.senderName,
+      title: params.memoryTitle
+    }
+  });
+}
+
+/**
+ * 7. Group / Direct Chat Message Push Notification
+ */
+export async function dispatchChatPushNotification(params: {
+  senderName: string;
+  senderId: string;
+  recipientUserIds: string[];
+  content: string;
+}) {
+  const recipients = params.recipientUserIds.filter(id => id && id !== params.senderId);
+  if (recipients.length === 0) return;
+
+  const dedupeKey = `chat_${params.senderId}_${recipients.sort().join('_')}_${params.content.slice(0, 30)}_${Math.floor(Date.now() / 4000)}`;
+
+  const snippet = params.content.length > 50 ? `${params.content.substring(0, 50)}...` : params.content;
+
+  return sendDeduplicatedPush(dedupeKey, {
+    recipientUserIds: recipients,
+    title: '💬 Friend OS',
+    body: `${params.senderName}: ${snippet}`,
+    section: 'chat',
+    tag: `friend-os-chat-${Date.now()}`,
+    data: {
+      section: 'chat',
+      senderName: params.senderName
+    }
+  });
+}
+
+/**
  * Fetch total count of registered push devices (Admin audit)
  */
 export async function fetchPushSubscriptionsCount(): Promise<number> {
