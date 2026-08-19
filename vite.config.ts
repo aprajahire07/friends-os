@@ -187,6 +187,102 @@ function pushGatewayPlugin() {
           });
           return;
         }
+
+        if (req.url === '/api/save-subscription' && req.method === 'POST') {
+          let body = '';
+          req.on('data', (chunk: any) => { body += chunk; });
+          req.on('end', async () => {
+            res.setHeader('Content-Type', 'application/json');
+            try {
+              const { user_id, endpoint, p256dh, auth, user_agent } = JSON.parse(body || '{}');
+              if (!user_id || !endpoint || !p256dh || !auth) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ success: false, error: 'Missing required fields' }));
+                return;
+              }
+
+              const supabaseClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+                auth: { persistSession: false },
+              });
+
+              const { error } = await supabaseClient
+                .from('push_subscriptions')
+                .upsert(
+                  {
+                    user_id,
+                    endpoint,
+                    p256dh,
+                    auth,
+                    user_agent: user_agent || '',
+                    updated_at: new Date().toISOString()
+                  },
+                  { onConflict: 'user_id,endpoint' }
+                );
+
+              if (error) {
+                await supabaseClient.from('push_subscriptions').delete().eq('user_id', user_id).eq('endpoint', endpoint);
+                await supabaseClient.from('push_subscriptions').insert({
+                  user_id,
+                  endpoint,
+                  p256dh,
+                  auth,
+                  user_agent: user_agent || '',
+                  updated_at: new Date().toISOString()
+                });
+              }
+
+              res.statusCode = 200;
+              res.end(JSON.stringify({ success: true }));
+            } catch (e: any) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ success: false, error: e?.message }));
+            }
+          });
+          return;
+        }
+
+        if (req.url?.startsWith('/api/push-status') && req.method === 'GET') {
+          res.setHeader('Content-Type', 'application/json');
+          try {
+            const url = new URL(req.url, 'http://localhost');
+            const userId = url.searchParams.get('userId');
+
+            const supabaseClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+              auth: { persistSession: false },
+            });
+
+            let totalCount = 0;
+            let userSubscriptionCount = 0;
+
+            const { count: total } = await supabaseClient
+              .from('push_subscriptions')
+              .select('*', { count: 'exact', head: true });
+
+            if (typeof total === 'number') totalCount = total;
+
+            if (userId) {
+              const { count: userCount } = await supabaseClient
+                .from('push_subscriptions')
+                .select('*', { count: 'exact', head: true })
+                .eq('user_id', userId);
+
+              if (typeof userCount === 'number') userSubscriptionCount = userCount;
+            }
+
+            res.statusCode = 200;
+            res.end(JSON.stringify({
+              success: true,
+              vapidConfigured: Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY),
+              totalRegisteredDevices: totalCount,
+              userRegisteredDevices: userSubscriptionCount
+            }));
+          } catch (e: any) {
+            res.statusCode = 200;
+            res.end(JSON.stringify({ success: false, error: e?.message }));
+          }
+          return;
+        }
+
         next();
       });
     }

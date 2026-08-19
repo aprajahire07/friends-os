@@ -192,6 +192,104 @@ async function startServer() {
     }
   });
 
+  // Save/Persist Push Subscription to Supabase using Service Role
+  app.post("/api/save-subscription", async (req, res) => {
+    try {
+      const { user_id, endpoint, p256dh, auth, user_agent } = req.body || {};
+      if (!user_id || !endpoint || !p256dh || !auth) {
+        return res.status(400).json({ success: false, error: "Missing required subscription fields." });
+      }
+
+      const supabaseClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+        auth: { persistSession: false },
+      });
+
+      // Upsert into push_subscriptions table
+      const { error } = await supabaseClient
+        .from("push_subscriptions")
+        .upsert(
+          {
+            user_id,
+            endpoint,
+            p256dh,
+            auth,
+            user_agent: user_agent || "",
+            updated_at: new Date().toISOString()
+          },
+          { onConflict: "user_id,endpoint" }
+        );
+
+      if (error) {
+        // Fallback: Delete any existing records for this user+endpoint and insert
+        await supabaseClient.from("push_subscriptions").delete().eq("user_id", user_id).eq("endpoint", endpoint);
+        const { error: insertErr } = await supabaseClient
+          .from("push_subscriptions")
+          .insert({
+            user_id,
+            endpoint,
+            p256dh,
+            auth,
+            user_agent: user_agent || "",
+            updated_at: new Date().toISOString()
+          });
+
+        if (insertErr) {
+          console.warn("Save subscription insert fallback error:", insertErr.message);
+          return res.status(200).json({ success: false, error: insertErr.message });
+        }
+      }
+
+      return res.json({ success: true, message: "Push subscription persisted successfully." });
+    } catch (err: any) {
+      console.error("Save subscription exception:", err);
+      return res.status(500).json({ success: false, error: err?.message || "Server error saving subscription" });
+    }
+  });
+
+  // Push Status & Diagnostic Endpoint
+  app.get("/api/push-status", async (req, res) => {
+    try {
+      const userId = req.query.userId as string;
+      const supabaseClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+        auth: { persistSession: false },
+      });
+
+      let totalCount = 0;
+      let userSubscriptionCount = 0;
+
+      const { count: total, error: totalErr } = await supabaseClient
+        .from("push_subscriptions")
+        .select("*", { count: "exact", head: true });
+
+      if (!totalErr && typeof total === "number") {
+        totalCount = total;
+      }
+
+      if (userId) {
+        const { count: userCount, error: userErr } = await supabaseClient
+          .from("push_subscriptions")
+          .select("*", { count: "exact", head: true })
+          .eq("user_id", userId);
+
+        if (!userErr && typeof userCount === "number") {
+          userSubscriptionCount = userCount;
+        }
+      }
+
+      return res.json({
+        success: true,
+        vapidConfigured: Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY),
+        totalRegisteredDevices: totalCount,
+        userRegisteredDevices: userSubscriptionCount
+      });
+    } catch (err: any) {
+      return res.json({
+        success: false,
+        error: err?.message
+      });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

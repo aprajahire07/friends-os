@@ -6,12 +6,18 @@ import {
   Check, 
   AlertCircle, 
   Radio, 
-  RefreshCw 
+  RefreshCw,
+  Smartphone,
+  ShieldCheck,
+  Bell
 } from 'lucide-react';
 import { appStore, useAppStore } from '../../lib/store';
 import { 
   sendPushNotification, 
-  fetchPushSubscriptionsCount 
+  fetchPushSubscriptionsCount,
+  fetchPushDiagnostics,
+  showLocalTestNotification,
+  subscribeUserToPush
 } from '../../services/pushNotifications';
 import { useToast } from '../ui/Toast';
 
@@ -32,6 +38,7 @@ export const PushBroadcastView: React.FC<PushBroadcastViewProps> = () => {
   const [targetSection, setTargetSection] = useState<'home' | 'chat' | 'money' | 'borrowed' | 'snaps' | 'memories' | 'notes' | 'plans' | 'attendance'>('home');
   
   const [isSending, setIsSending] = useState(false);
+  const [isTestingLocal, setIsTestingLocal] = useState(false);
   const [sendResult, setSendResult] = useState<{
     type: 'success' | 'error' | null;
     text: string;
@@ -39,15 +46,47 @@ export const PushBroadcastView: React.FC<PushBroadcastViewProps> = () => {
   }>({ type: null, text: '' });
 
   const [totalSubscribed, setTotalSubscribed] = useState<number | null>(null);
+  const [diagnostics, setDiagnostics] = useState<{
+    supported: boolean;
+    permission: string;
+    hasServiceWorker: boolean;
+    hasBrowserSubscription: boolean;
+    totalServerDevices: number;
+    userServerDevices: number;
+  } | null>(null);
 
   const loadSubscribedCount = async () => {
     const count = await fetchPushSubscriptionsCount();
     setTotalSubscribed(count);
+    if (currentUser?.id) {
+      const diag = await fetchPushDiagnostics(currentUser.id);
+      setDiagnostics(diag);
+    }
   };
 
   useEffect(() => {
     loadSubscribedCount();
-  }, []);
+  }, [currentUser?.id]);
+
+  const handleTestLocalPush = async () => {
+    setIsTestingLocal(true);
+    try {
+      if (currentUser?.id) {
+        await subscribeUserToPush(currentUser.id);
+      }
+      const ok = await showLocalTestNotification();
+      if (ok) {
+        showToast('Push Test Sent', 'Local system test notification triggered via Service Worker!', 'success');
+      } else {
+        showToast('Permission Needed', 'Please enable push notifications in your browser or Me tab first.', 'error');
+      }
+    } catch (e: any) {
+      showToast('Push Test Error', e?.message || 'Failed to trigger test notification', 'error');
+    } finally {
+      setIsTestingLocal(false);
+      loadSubscribedCount();
+    }
+  };
 
   const availableTargets = [
     { id: 'home' as const, label: 'Home' },
@@ -340,6 +379,70 @@ export const PushBroadcastView: React.FC<PushBroadcastViewProps> = () => {
           )}
         </button>
       </form>
+
+      {/* Push Infrastructure & Device Diagnostics */}
+      <div className="p-4 rounded-3xl bg-slate-900 border border-slate-800 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
+            <ShieldCheck className="w-4 h-4 text-emerald-400" />
+            <span>Push Gateway & Device Status</span>
+          </div>
+          <button
+            type="button"
+            onClick={loadSubscribedCount}
+            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            title="Refresh status"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 text-[11px]">
+          <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80">
+            <span className="text-slate-400 block mb-0.5">Permission</span>
+            <span className={`font-bold ${
+              diagnostics?.permission === 'granted' 
+                ? 'text-emerald-400' 
+                : diagnostics?.permission === 'denied' 
+                ? 'text-rose-400' 
+                : 'text-amber-400'
+            }`}>
+              {diagnostics?.permission ? diagnostics.permission.toUpperCase() : 'CHECKING...'}
+            </span>
+          </div>
+
+          <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80">
+            <span className="text-slate-400 block mb-0.5">Service Worker</span>
+            <span className={`font-bold ${diagnostics?.hasServiceWorker ? 'text-emerald-400' : 'text-amber-400'}`}>
+              {diagnostics?.hasServiceWorker ? 'ACTIVE (/sw.js)' : 'INACTIVE'}
+            </span>
+          </div>
+
+          <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80">
+            <span className="text-slate-400 block mb-0.5">This Browser Push Sub</span>
+            <span className={`font-bold ${diagnostics?.hasBrowserSubscription ? 'text-emerald-400' : 'text-slate-400'}`}>
+              {diagnostics?.hasBrowserSubscription ? 'REGISTERED' : 'NOT SUBSCRIBED'}
+            </span>
+          </div>
+
+          <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80">
+            <span className="text-slate-400 block mb-0.5">Total Server Devices</span>
+            <span className="font-bold text-indigo-400">
+              {diagnostics?.totalServerDevices ?? (totalSubscribed || 0)} registered
+            </span>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleTestLocalPush}
+          disabled={isTestingLocal}
+          className="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700/60 transition-colors flex items-center justify-center gap-2"
+        >
+          <Bell className="w-3.5 h-3.5 text-indigo-400" />
+          <span>{isTestingLocal ? 'Testing Local Push...' : 'Test Web Push On This Device'}</span>
+        </button>
+      </div>
     </div>
   );
 };

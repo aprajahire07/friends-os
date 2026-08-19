@@ -35,6 +35,7 @@ import { appStore, useAppStore } from './lib/store';
 import { subscribeToAllRealtimeTables } from './services/realtime';
 import { fetchProfileById } from './services/profiles';
 import { isUserAdmin } from './services/appSettings';
+import { syncExistingPushSubscription } from './services/pushNotifications';
 import { withTimeout } from './lib/asyncUtils';
 import { Loader2 } from 'lucide-react';
 
@@ -109,6 +110,8 @@ export function AppContent() {
               appStore.setCurrentUser(profile);
               // Trigger background sync without blocking interactive rendering
               appStore.syncFromSupabase();
+              // Auto-sync active device push subscription to guarantee server push reachability
+              syncExistingPushSubscription(profile.id).catch(() => {});
             }
           } else if (!appStore.currentUser && mounted) {
             // No session and no cached user
@@ -135,6 +138,7 @@ export function AppContent() {
           if (profile && mounted) {
             appStore.setCurrentUser(profile);
             appStore.syncFromSupabase();
+            syncExistingPushSubscription(profile.id).catch(() => {});
           }
         } else if (event === 'SIGNED_OUT') {
           if (mounted) {

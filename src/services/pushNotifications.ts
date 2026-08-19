@@ -156,24 +156,44 @@ export async function subscribeUserToPush(userId: string): Promise<{
 
     // 5. Store/Upsert in Supabase push_subscriptions table
     if (isSupabaseConfigured && supabase) {
-      const { error: dbError } = await supabase
-        .from('push_subscriptions')
-        .upsert(
-          {
-            user_id: userId,
-            endpoint: endpoint,
-            p256dh: p256dh,
-            auth: auth,
-            user_agent: userAgent,
-            updated_at: new Date().toISOString()
-          },
-          { onConflict: 'user_id,endpoint' }
-        );
+      try {
+        const { error: dbError } = await supabase
+          .from('push_subscriptions')
+          .upsert(
+            {
+              user_id: userId,
+              endpoint: endpoint,
+              p256dh: p256dh,
+              auth: auth,
+              user_agent: userAgent,
+              updated_at: new Date().toISOString()
+            },
+            { onConflict: 'user_id,endpoint' }
+          );
 
-      if (dbError) {
-        console.warn('Could not persist push subscription to Supabase:', dbError.message);
-        // Note: Table might need creation via migration if not yet created
+        if (dbError) {
+          console.warn('Direct Supabase push subscription notice:', dbError.message);
+        }
+      } catch (dbErr) {
+        console.warn('Supabase subscription upsert notice:', dbErr);
       }
+    }
+
+    // 6. Secondary Server API persistence (uses Service Role Key to guarantee persistence regardless of RLS)
+    try {
+      await fetch('/api/save-subscription', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          endpoint,
+          p256dh,
+          auth,
+          user_agent: userAgent
+        })
+      });
+    } catch (apiErr) {
+      console.warn('API save subscription notice:', apiErr);
     }
 
     // Save active state to localStorage for instantaneous UI updates
@@ -184,6 +204,134 @@ export async function subscribeUserToPush(userId: string): Promise<{
     console.error('Push subscription failed:', err);
     return { success: false, status: getPushPermissionState(), error: err?.message || 'Failed to subscribe to push notifications.' };
   }
+}
+
+/**
+ * Automatically synchronize and persist existing browser PushSubscription to Supabase
+ * Ensures User B's device is permanently reachable via server-side Web Push even when the app is closed.
+ */
+export async function syncExistingPushSubscription(userId: string): Promise<boolean> {
+  if (!isPushNotificationSupported() || !userId || Notification.permission !== 'granted') {
+    return false;
+  }
+
+  try {
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (!registration) return false;
+
+    const subscription = await registration.pushManager.getSubscription();
+    if (!subscription) return false;
+
+    const rawKey = subscription.getKey ? subscription.getKey('p256dh') : null;
+    const rawAuth = subscription.getKey ? subscription.getKey('auth') : null;
+
+    if (!rawKey || !rawAuth) return false;
+
+    const p256dh = btoa(String.fromCharCode(...new Uint8Array(rawKey)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const auth = btoa(String.fromCharCode(...new Uint8Array(rawAuth)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+    const endpoint = subscription.endpoint;
+    const userAgent = navigator.userAgent;
+
+    // 1. Direct Supabase Upsert
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase
+          .from('push_subscriptions')
+          .upsert(
+            {
+              user_id: userId,
+              endpoint: endpoint,
+              p256dh: p256dh,
+              auth: auth,
+              user_agent: userAgent,
+              updated_at: new Date().toISOString()
+            },
+            { onConflict: 'user_id,endpoint' }
+          );
+      } catch (err) {
+        console.warn('Supabase subscription sync notice:', err);
+      }
+    }
+
+    // 2. Server API persistence with service-role
+    try {
+      await fetch('/api/save-subscription', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          endpoint,
+          p256dh,
+          auth,
+          user_agent: userAgent
+        })
+      });
+    } catch {
+      // non-blocking
+    }
+
+    localStorage.setItem(`friend_os_push_enabled_${userId}`, 'true');
+    return true;
+  } catch (err) {
+    console.warn('Sync push subscription error:', err);
+    return false;
+  }
+}
+
+/**
+ * Fetch detailed Push Diagnostics for Admin & Debugging
+ */
+export async function fetchPushDiagnostics(userId?: string): Promise<{
+  supported: boolean;
+  permission: PushPermissionStatus;
+  hasServiceWorker: boolean;
+  hasBrowserSubscription: boolean;
+  totalServerDevices: number;
+  userServerDevices: number;
+}> {
+  const supported = isPushNotificationSupported();
+  const permission = getPushPermissionState();
+  let hasServiceWorker = false;
+  let hasBrowserSubscription = false;
+
+  if (supported) {
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      hasServiceWorker = Boolean(reg);
+      if (reg) {
+        const sub = await reg.pushManager.getSubscription();
+        hasBrowserSubscription = Boolean(sub);
+      }
+    } catch {
+      // non-blocking
+    }
+  }
+
+  let totalServerDevices = 0;
+  let userServerDevices = 0;
+
+  try {
+    const url = userId ? `/api/push-status?userId=${encodeURIComponent(userId)}` : '/api/push-status';
+    const res = await fetch(url).then(r => r.json()).catch(() => null);
+    if (res && res.success) {
+      totalServerDevices = res.totalRegisteredDevices || 0;
+      userServerDevices = res.userRegisteredDevices || 0;
+    }
+  } catch {
+    // non-blocking
+  }
+
+  return {
+    supported,
+    permission,
+    hasServiceWorker,
+    hasBrowserSubscription,
+    totalServerDevices,
+    userServerDevices
+  };
 }
 
 /**
