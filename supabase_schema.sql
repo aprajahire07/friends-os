@@ -264,9 +264,15 @@ CREATE TABLE IF NOT EXISTS public.memories (
   caption TEXT NOT NULL,
   memory_date DATE NOT NULL,
   location TEXT,
+  youtube_url TEXT,
+  youtube_video_id TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Ensure columns exist for existing tables
+ALTER TABLE public.memories ADD COLUMN IF NOT EXISTS youtube_url TEXT;
+ALTER TABLE public.memories ADD COLUMN IF NOT EXISTS youtube_video_id TEXT;
 
 CREATE TABLE IF NOT EXISTS public.memory_photos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

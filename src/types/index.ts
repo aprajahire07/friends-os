@@ -149,12 +149,14 @@ export interface MemoryPhoto {
 
 export interface Memory {
   id: string;
-  group_id: string;
+  group_id?: string;
   creator_id: string;
   title: string;
   caption: string;
   media_urls: string[];
   photos?: MemoryPhoto[];
+  youtube_url?: string | null;
+  youtube_video_id?: string | null;
   date: string;
   location?: string;
   tagged_user_ids: string[];
