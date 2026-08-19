@@ -8,7 +8,7 @@
  * - Uses Network-First for navigation so new deployments are served immediately.
  */
 
-const CACHE_NAME = 'friend-os-shell-v2';
+const CACHE_NAME = 'friend-os-shell-v3';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -74,7 +74,6 @@ self.addEventListener('activate', (event) => {
       return Promise.all(
         cacheNames.map((name) => {
           if (name !== CACHE_NAME) {
-            console.log('Purging legacy cache:', name);
             return caches.delete(name);
           }
         })
@@ -144,109 +143,3 @@ self.addEventListener('message', (event) => {
     self.skipWaiting();
   }
 });
-
-// ==============================================================================
-// WEB PUSH NOTIFICATIONS (Mobile & Desktop System Level Push API)
-// ==============================================================================
-
-/**
- * Listen for incoming Web Push events dispatched by Supabase Edge Function
- */
-self.addEventListener('push', (event) => {
-  let payload = {};
-  
-  if (event.data) {
-    try {
-      payload = event.data.json();
-    } catch (e) {
-      payload = {
-        title: 'Friend OS',
-        body: event.data.text()
-      };
-    }
-  }
-
-  const title = payload.title || 'Friend OS';
-  const section = payload.section || (payload.data && payload.data.section) || 'home';
-  const tag = payload.tag || `friend-os-${section}-${Date.now()}`;
-
-  const notificationOptions = {
-    body: payload.body || 'You have a new update in Friend OS.',
-    icon: payload.icon || '/icons/icon-192.png',
-    badge: payload.badge || '/icons/icon-192.png',
-    image: payload.image || undefined,
-    tag: tag,
-    renotify: true,
-    requireInteraction: false,
-    vibrate: [120, 60, 120],
-    timestamp: payload.timestamp || Date.now(),
-    data: {
-      url: payload.url || `/?tab=${section}`,
-      section: section,
-      customData: payload.data || {},
-      receivedAt: Date.now()
-    }
-  };
-
-  event.waitUntil(
-    self.registration.showNotification(title, notificationOptions)
-  );
-});
-
-/**
- * Handle notification taps/clicks — focus or open Friend OS and navigate to correct section
- */
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-
-  const data = event.notification.data || {};
-  const section = data.section || 'home';
-  
-  // Section mapping to ensure canonical tab routing
-  const sectionToTabMap = {
-    money: 'expenses',
-    expenses: 'expenses',
-    notes: 'notes',
-    snaps: 'snaps',
-    plans: 'plans',
-    chat: 'chat',
-    memories: 'memories',
-    attendance: 'attendance',
-    borrowed: 'borrowed',
-    passwords: 'admin',
-    admin: 'admin',
-    home: 'home'
-  };
-
-  const targetTab = sectionToTabMap[section.toLowerCase()] || section || 'home';
-  const targetUrl = data.url || `/?tab=${targetTab}`;
-
-  event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // Look for an existing open window/tab of Friend OS
-      for (const client of clientList) {
-        if ('focus' in client) {
-          // Send navigation message to React App
-          client.postMessage({
-            type: 'NAVIGATE_TAB',
-            tab: targetTab,
-            section: section,
-            data: data.customData || {}
-          });
-          return client.focus();
-        }
-      }
-
-      // If no window is currently open, launch a new window
-      if (self.clients.openWindow) {
-        return self.clients.openWindow(targetUrl);
-      }
-    })
-  );
-});
-
-// Handle notification close event for analytics / cleanup
-self.addEventListener('notificationclose', (event) => {
-  // Optional telemetry hook
-});
-

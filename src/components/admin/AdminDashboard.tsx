@@ -19,14 +19,13 @@ import { MoneyHistoryView } from './MoneyHistoryView';
 import { PasswordManagementView } from './PasswordManagementView';
 import { SystemOverviewView } from './SystemOverviewView';
 import { AdminNotesManagementView } from './AdminNotesManagementView';
-import { PushBroadcastView } from './PushBroadcastView';
 import { FRIEND_OS_ADMIN_EMAIL } from '../../services/appSettings';
 
 interface AdminDashboardProps {
   onBackToHome?: () => void;
 }
 
-type AdminTab = 'users' | 'push' | 'notes' | 'memories' | 'money' | 'passwords' | 'overview';
+type AdminTab = 'users' | 'notes' | 'memories' | 'money' | 'passwords' | 'overview';
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToHome }) => {
   useAppStore();
@@ -63,7 +62,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToHome }) 
 
   const tabs = [
     { id: 'users' as AdminTab, label: 'User Management', icon: Users },
-    { id: 'push' as AdminTab, label: '📢 Push Notifications', icon: Radio },
     { id: 'notes' as AdminTab, label: 'Notes Master Access', icon: FileText },
     { id: 'memories' as AdminTab, label: 'Memories Security', icon: Lock },
     { id: 'money' as AdminTab, label: 'Money History', icon: Wallet },
@@ -135,7 +133,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToHome }) 
       {/* Main Tab Content View */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl">
         {activeAdminTab === 'users' && <UserManagementView />}
-        {activeAdminTab === 'push' && <PushBroadcastView />}
         {activeAdminTab === 'notes' && <AdminNotesManagementView />}
         {activeAdminTab === 'memories' && <MemoriesSecurityView />}
         {activeAdminTab === 'money' && <MoneyHistoryView />}

@@ -35,29 +35,11 @@ import { appStore, useAppStore } from './lib/store';
 import { subscribeToAllRealtimeTables } from './services/realtime';
 import { fetchProfileById } from './services/profiles';
 import { isUserAdmin } from './services/appSettings';
-import { syncExistingPushSubscription } from './services/pushNotifications';
 import { withTimeout } from './lib/asyncUtils';
 import { Loader2 } from 'lucide-react';
 
 export function AppContent() {
-  // Read initial ?tab= query parameter from URL (e.g. from push notification clicks)
-  const getInitialTab = () => {
-    try {
-      const urlParams = new URLSearchParams(window.location.search);
-      const tabParam = urlParams.get('tab');
-      if (tabParam) {
-        // Clean URL without full reload
-        const newUrl = window.location.pathname;
-        window.history.replaceState({}, document.title, newUrl);
-        return tabParam;
-      }
-    } catch (e) {
-      // ignore
-    }
-    return 'home';
-  };
-
-  const [activeTab, setActiveTab] = useState<string>(getInitialTab);
+  const [activeTab, setActiveTab] = useState<string>('home');
   // If local user is already cached, avoid blocking UI on initial reload
   const [authChecking, setAuthChecking] = useState<boolean>(!appStore.currentUser && isSupabaseConfigured);
   const [authModalMode, setAuthModalMode] = useState<'login' | 'signup' | 'forgot' | 'reset_password'>('login');
@@ -72,28 +54,6 @@ export function AppContent() {
   // Reactive store state
   useAppStore();
   const currentUser = appStore.currentUser;
-
-  // Listen for Service Worker Push Notification Click Navigation
-  useEffect(() => {
-    const handleServiceWorkerMessage = (event: MessageEvent) => {
-      if (event.data && event.data.type === 'NAVIGATE_TAB' && event.data.tab) {
-        setActiveTab(event.data.tab);
-        if (event.data.section && toastRef.current) {
-          toastRef.current('Opened via Push Notification', `Viewing ${event.data.section}`, 'info');
-        }
-      }
-    };
-
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage);
-    }
-
-    return () => {
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -110,8 +70,6 @@ export function AppContent() {
               appStore.setCurrentUser(profile);
               // Trigger background sync without blocking interactive rendering
               appStore.syncFromSupabase();
-              // Auto-sync active device push subscription to guarantee server push reachability
-              syncExistingPushSubscription(profile.id).catch(() => {});
             }
           } else if (!appStore.currentUser && mounted) {
             // No session and no cached user
