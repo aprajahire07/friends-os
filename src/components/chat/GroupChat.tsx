@@ -234,7 +234,7 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
   }, [otherProfiles, searchFriendQuery]);
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-5.2rem)] md:h-[calc(100vh-6rem)] w-full bg-slate-900 border border-slate-800/90 rounded-2xl md:rounded-3xl overflow-hidden shadow-2xl relative select-none">
+    <div className="flex flex-col h-[calc(100dvh-8.8rem)] md:h-[calc(100vh-6rem)] w-full bg-slate-900 border border-slate-800/90 rounded-2xl md:rounded-3xl overflow-hidden shadow-2xl relative select-none">
       {/* Hidden File Inputs */}
       <input
         ref={photoInputRef}

@@ -28,6 +28,7 @@ import { getSyncMediaUrl } from '../../services/storage';
 import { isUserAdmin } from '../../services/appSettings';
 import { Avatar } from '../ui/Avatar';
 import { usePWA } from '../../hooks/usePWA';
+import { PushNotificationSettings } from './PushNotificationSettings';
 
 interface MeTabProps {
   onSelectTab: (tab: string) => void;
@@ -220,6 +221,9 @@ export const MeTab: React.FC<MeTabProps> = ({
           </div>
         )}
       </div>
+
+      {/* WEB PUSH PHONE NOTIFICATIONS */}
+      <PushNotificationSettings userId={user.id} />
 
       {/* MORE FEATURES & NAVIGATION */}
       <div className="space-y-3">
