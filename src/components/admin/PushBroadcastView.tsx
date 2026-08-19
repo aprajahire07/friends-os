@@ -288,24 +288,36 @@ export const PushBroadcastView: React.FC<PushBroadcastViewProps> = () => {
 
         {/* Result Message */}
         {sendResult.type && (
-          <div className={`p-3 rounded-xl text-xs flex items-center justify-between gap-2 ${
+          <div className={`p-3.5 rounded-2xl text-xs flex items-center justify-between gap-3 ${
             sendResult.type === 'success' 
               ? 'bg-emerald-950/40 border border-emerald-800/80 text-emerald-300' 
               : 'bg-rose-950/40 border border-rose-800/80 text-rose-300'
           }`}>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-2 min-w-0">
               {sendResult.type === 'success' ? (
                 <Check className="w-4 h-4 text-emerald-400 shrink-0" />
               ) : (
                 <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
               )}
-              <span>{sendResult.text}</span>
+              <span className="break-words font-medium">{sendResult.text}</span>
             </div>
-            {sendResult.warning && (
-              <span className="text-[11px] text-amber-400 font-mono">
-                {sendResult.warning}
-              </span>
-            )}
+            <div className="flex items-center gap-2 shrink-0">
+              {sendResult.warning && (
+                <span className="text-[11px] text-amber-400 font-mono">
+                  {sendResult.warning}
+                </span>
+              )}
+              {sendResult.type === 'error' && (
+                <button
+                  type="button"
+                  onClick={(e) => handleSendNotification(e)}
+                  className="px-2.5 py-1 rounded-lg bg-rose-900/60 hover:bg-rose-800 text-rose-200 text-[11px] font-bold border border-rose-700/50 transition-colors flex items-center gap-1"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Retry</span>
+                </button>
+              )}
+            </div>
           </div>
         )}
 

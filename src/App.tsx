@@ -149,10 +149,47 @@ export function AppContent() {
         }
       });
 
+      // Realtime Push Broadcast Channel Listener
+      const pushChannel = supabase.channel('friend_os_push_broadcast')
+        .on('broadcast', { event: 'push_notification' }, async ({ payload }: any) => {
+          if (!payload) return;
+          const { all, recipient_user_ids, title, body, section, icon, badge, image, data } = payload;
+          const myUserId = appStore.currentUser?.id;
+          const isRecipient = all || (myUserId && Array.isArray(recipient_user_ids) && recipient_user_ids.includes(myUserId));
+          
+          if (!isRecipient) return;
+
+          // If Service Worker & Notification permission are available, display system notification
+          if ('Notification' in window && Notification.permission === 'granted') {
+            try {
+              const reg = await navigator.serviceWorker.getRegistration();
+              if (reg) {
+                const notifOpts: any = {
+                  body: body || 'New update in Friend OS',
+                  icon: icon || '/icons/icon-192.png',
+                  badge: badge || '/icons/icon-192.png',
+                  image: image || undefined,
+                  tag: `friend-os-${Date.now()}`,
+                  data: {
+                    section: section || 'home',
+                    url: `/?tab=${section || 'home'}`,
+                    customData: data || {}
+                  }
+                };
+                await reg.showNotification(title || 'Friend OS', notifOpts);
+              }
+            } catch (e) {
+              console.warn('Realtime push display notice:', e);
+            }
+          }
+        })
+        .subscribe();
+
       return () => {
         mounted = false;
         authListener?.subscription?.unsubscribe?.();
         unsubscribeRealtime();
+        supabase?.removeChannel(pushChannel);
       };
     } else {
       setAuthChecking(false);
