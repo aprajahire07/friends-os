@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { AIConversation, AIMessage, AIAttachment, AIProvider } from '../types';
+import { GoogleGenAI } from '@google/genai';
 import mammoth from 'mammoth';
 
 const LOCAL_STORAGE_CONVERSATIONS_KEY = 'friend_os_ai_conversations';
@@ -431,8 +432,85 @@ export function formatFileSize(bytes: number): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
+function sanitizeGeminiContents(rawMessages: any[]) {
+  const normalized: Array<{ role: 'user' | 'model'; parts: any[] }> = [];
+
+  for (const msg of rawMessages) {
+    if (!msg || (msg.role !== 'user' && msg.role !== 'assistant')) continue;
+    const targetRole = msg.role === 'assistant' ? 'model' : 'user';
+    const parts: any[] = [];
+
+    if (Array.isArray(msg.attachments)) {
+      for (const att of msg.attachments) {
+        if (!att) continue;
+        const mime = (att.type || '').toLowerCase();
+        if (mime.startsWith('image/') && att.base64Data) {
+          const cleanBase64 = att.base64Data.includes(',')
+            ? att.base64Data.split(',')[1]
+            : att.base64Data;
+          if (cleanBase64) {
+            parts.push({
+              inlineData: {
+                mimeType: mime || 'image/jpeg',
+                data: cleanBase64,
+              },
+            });
+          }
+        } else if (mime === 'application/pdf' && att.base64Data) {
+          const cleanBase64 = att.base64Data.includes(',')
+            ? att.base64Data.split(',')[1]
+            : att.base64Data;
+          if (cleanBase64) {
+            parts.push({
+              inlineData: {
+                mimeType: 'application/pdf',
+                data: cleanBase64,
+              },
+            });
+          }
+        } else if (att.textContent) {
+          parts.push({
+            text: `[Attached Document: ${att.name || 'File'}]\n${att.textContent}\n[End of Document]`,
+          });
+        }
+      }
+    }
+
+    if (typeof msg.content === 'string' && msg.content.trim()) {
+      parts.push({ text: msg.content.trim() });
+    }
+
+    if (parts.length === 0) continue;
+
+    if (normalized.length > 0 && normalized[normalized.length - 1].role === targetRole) {
+      normalized[normalized.length - 1].parts.push(...parts);
+    } else {
+      normalized.push({ role: targetRole, parts });
+    }
+  }
+
+  while (normalized.length > 0 && normalized[0].role === 'model') {
+    normalized.shift();
+  }
+
+  if (normalized.length === 0) {
+    normalized.push({ role: 'user', parts: [{ text: 'Hello!' }] });
+  }
+
+  return normalized;
+}
+
+const SYSTEM_INSTRUCTION =
+  'You are FRIEND OS AI, a friendly, highly capable AI companion, academic tutor, and study assistant in Friend OS. You answer accurately, thoughtfully, and clearly in whatever language the user communicates in (English, Hindi, Hinglish, Marathi, etc.). Assist students with detailed explanations, homework, coding solutions, math step-by-step reasoning, document summaries, exam prep, and daily campus life. Use clean Markdown with headers, bold points, code blocks, and structured lists.';
+
+const GEMINI_CANDIDATE_MODELS = [
+  'gemini-3.7-flash',
+  'gemini-flash-latest',
+  'gemini-3.1-flash-lite',
+];
+
 /**
- * Stream AI Response via Server-Sent Events
+ * Stream AI Response via Server-Sent Events with Client-side Gemini fallback
  */
 export async function streamAIChat({
   provider,
@@ -449,19 +527,19 @@ export async function streamAIChat({
   onError: (err: Error) => void;
   abortSignal?: AbortSignal;
 }): Promise<void> {
-  try {
-    const payloadMessages = messages.map((m) => ({
-      role: m.role,
-      content: m.content,
-      attachments: m.attachments?.map((a) => ({
-        name: a.name,
-        type: a.type,
-        base64Data: a.base64Data,
-        textContent: a.textContent,
-        size: a.size,
-      })),
-    }));
+  const payloadMessages = messages.map((m) => ({
+    role: m.role,
+    content: m.content,
+    attachments: m.attachments?.map((a) => ({
+      name: a.name,
+      type: a.type,
+      base64Data: a.base64Data,
+      textContent: a.textContent,
+      size: a.size,
+    })),
+  }));
 
+  try {
     const response = await fetch('/api/ai/chat', {
       method: 'POST',
       headers: {
@@ -475,61 +553,98 @@ export async function streamAIChat({
       signal: abortSignal,
     });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      let errMsg = errText;
-      try {
-        const json = JSON.parse(errText);
-        errMsg = json.error || errText;
-      } catch {}
-      throw new Error(errMsg || `AI server returned ${response.status}`);
-    }
+    if (response.ok && response.body) {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulatedText = '';
+      let buffer = '';
 
-    if (!response.body) {
-      throw new Error('No response stream available');
-    }
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let accumulatedText = '';
-    let buffer = '';
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          if (trimmed === 'data: [DONE]') {
+            onDone(accumulatedText);
+            return;
+          }
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        if (trimmed === 'data: [DONE]') {
-          onDone(accumulatedText);
-          return;
-        }
-
-        if (trimmed.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(trimmed.slice(6));
-            if (data.error) {
-              throw new Error(data.error);
-            }
-            if (data.delta) {
-              accumulatedText += data.delta;
-              onChunk(data.delta);
-            }
-          } catch (jsonErr: any) {
-            if (jsonErr.message && !jsonErr.message.includes('JSON')) {
-              throw jsonErr;
+          if (trimmed.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(trimmed.slice(6));
+              if (data.error) {
+                throw new Error(data.error);
+              }
+              if (data.delta) {
+                accumulatedText += data.delta;
+                onChunk(data.delta);
+              }
+            } catch (jsonErr: any) {
+              if (jsonErr.message && !jsonErr.message.includes('JSON')) {
+                throw jsonErr;
+              }
             }
           }
         }
       }
+
+      onDone(accumulatedText);
+      return;
     }
 
-    onDone(accumulatedText);
+    // If server returned non-OK (e.g. 404 on static hosting or routing issue)
+    const clientApiKey =
+      (typeof import.meta !== 'undefined' && (import.meta as any).env ? (import.meta as any).env.VITE_GEMINI_API_KEY : undefined) ||
+      (typeof process !== 'undefined' && process.env ? process.env.GEMINI_API_KEY : undefined);
+
+    if (clientApiKey) {
+      const ai = new GoogleGenAI({ apiKey: clientApiKey });
+      const contents = sanitizeGeminiContents(payloadMessages);
+
+      for (const candidateModel of GEMINI_CANDIDATE_MODELS) {
+        try {
+          const streamResult = await ai.models.generateContentStream({
+            model: candidateModel,
+            contents,
+            config: { systemInstruction: SYSTEM_INSTRUCTION },
+          });
+
+          let clientAccumulated = '';
+          for await (const chunk of streamResult) {
+            const delta = chunk.text || '';
+            if (delta) {
+              clientAccumulated += delta;
+              onChunk(delta);
+            }
+          }
+          if (clientAccumulated) {
+            onDone(clientAccumulated);
+            return;
+          }
+        } catch (clientErr) {
+          console.warn(`Client Gemini fallback ${candidateModel} failed:`, clientErr);
+        }
+      }
+    }
+
+    const errText = await response.text().catch(() => '');
+    let cleanMessage = 'Failed to connect to AI service. Please tap send again in a moment.';
+    if (errText.includes('NOT_FOUND') || response.status === 404) {
+      cleanMessage = 'AI backend endpoint is initializing or unreachable. Please tap send again or check back in a few seconds.';
+    } else {
+      try {
+        const parsed = JSON.parse(errText);
+        cleanMessage = parsed.error || cleanMessage;
+      } catch {}
+    }
+
+    throw new Error(cleanMessage);
   } catch (err: any) {
     if (err.name === 'AbortError') {
       console.log('AI generation aborted by user.');
