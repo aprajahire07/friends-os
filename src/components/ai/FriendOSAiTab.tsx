@@ -23,6 +23,8 @@ import {
   Maximize2,
   ShieldCheck,
   Zap,
+  RotateCcw,
+  Eraser,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useAppStore } from '../../lib/store';
@@ -40,6 +42,8 @@ import {
   saveAIMessage,
   deleteAIConversation,
   updateAIConversationTitle,
+  clearAIConversationMessages,
+  clearAllUserAIHistory,
   extractFileForAI,
   formatFileSize,
   streamAIChat,
@@ -67,6 +71,8 @@ export const FriendOSAiTab: React.FC = () => {
   const [editConvTitle, setEditConvTitle] = useState('');
   const [previewImageModal, setPreviewImageModal] = useState<string | null>(null);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+  const [showClearChatConfirm, setShowClearChatConfirm] = useState(false);
+  const [showClearAllHistoryConfirm, setShowClearAllHistoryConfirm] = useState(false);
 
   // References
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -357,6 +363,42 @@ export const FriendOSAiTab: React.FC = () => {
     showToast('Deleted', 'Conversation removed.', 'info');
   };
 
+  // Clear Active Chat Messages
+  const handleClearCurrentChat = async () => {
+    if (!activeConversationId) return;
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsGenerating(false);
+    setStreamingText('');
+    await clearAIConversationMessages(activeConversationId);
+    setMessages([]);
+    setShowClearChatConfirm(false);
+    showToast('Chat Cleared', 'Messages in this conversation have been wiped.', 'info');
+  };
+
+  // Clear All AI Conversations & History
+  const handleClearAllHistory = async () => {
+    if (!currentUser?.id) return;
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsGenerating(false);
+    setStreamingText('');
+    await clearAllUserAIHistory(currentUser.id);
+    const newConv = await createAIConversation(currentUser.id, 'gemini', 'New Chat');
+    setConversations([newConv]);
+    setActiveConversationId(newConv.id);
+    setMessages([]);
+    setAttachments([]);
+    setInputPrompt('');
+    setShowClearAllHistoryConfirm(false);
+    setShowHistoryDrawer(false);
+    showToast('History Cleared', 'All AI conversations have been deleted.', 'info');
+  };
+
   // Save Renamed Conversation Title
   const handleSaveConvTitle = async (convId: string) => {
     if (!editConvTitle.trim()) {
@@ -430,7 +472,7 @@ export const FriendOSAiTab: React.FC = () => {
               <h1 className="text-sm font-black tracking-tight text-white flex items-center gap-1.5">
                 <span>🤖 Friend OS AI</span>
               </h1>
-              <p className="text-[10px] text-slate-400 truncate max-w-[140px] sm:max-w-[220px]">
+              <p className="text-[10px] text-slate-400 truncate max-w-[120px] sm:max-w-[200px]">
                 {activeConv?.title || 'New Chat'}
               </p>
             </div>
@@ -448,15 +490,30 @@ export const FriendOSAiTab: React.FC = () => {
           </div>
         </div>
 
-        {/* Right: + New Chat Button */}
-        <button
-          type="button"
-          onClick={() => handleNewChat()}
-          className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-xs font-bold shadow-md shadow-indigo-600/30 flex items-center gap-1.5 transition-all flex-shrink-0"
-        >
-          <Plus className="w-4 h-4" />
-          <span className="hidden sm:inline">New Chat</span>
-        </button>
+        {/* Right: Actions (Clear Chat & + New Chat) */}
+        <div className="flex items-center gap-1.5">
+          {messages.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowClearChatConfirm(true)}
+              className="p-2 sm:px-2.5 sm:py-1.5 rounded-xl bg-slate-800/80 hover:bg-red-950/50 hover:text-red-300 text-slate-400 border border-slate-700/60 active:scale-95 text-xs font-medium flex items-center gap-1.5 transition-all"
+              title="Clear this Chat"
+              aria-label="Clear chat messages"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-slate-400 group-hover:text-red-400" />
+              <span className="hidden md:inline">Clear Chat</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => handleNewChat()}
+            className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-xs font-bold shadow-md shadow-indigo-600/30 flex items-center gap-1.5 transition-all flex-shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+            <span className="hidden sm:inline">New Chat</span>
+          </button>
+        </div>
       </header>
 
       {/* 2. CHAT HISTORY SLIDE-OVER DRAWER (Responsive for Mobile and Desktop) */}
@@ -474,7 +531,7 @@ export const FriendOSAiTab: React.FC = () => {
               <div className="flex items-center gap-2">
                 <History className="w-4 h-4 text-indigo-400" />
                 <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
-                  Previous Chats
+                  Chat History
                 </h3>
               </div>
               <button
@@ -601,6 +658,20 @@ export const FriendOSAiTab: React.FC = () => {
                 })
               )}
             </div>
+
+            {/* Bottom: Clear All History Action */}
+            {conversations.length > 0 && (
+              <div className="pt-3 border-t border-slate-800 mt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowClearAllHistoryConfirm(true)}
+                  className="w-full py-2 px-3 rounded-xl bg-red-950/30 hover:bg-red-900/40 border border-red-800/40 text-red-300 text-xs font-semibold flex items-center justify-center gap-2 transition-all active:scale-95"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                  <span>Clear All Chat History</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -955,6 +1026,70 @@ export const FriendOSAiTab: React.FC = () => {
               alt="Preview"
               className="max-h-[80vh] w-auto rounded-2xl border border-slate-800 shadow-2xl object-contain"
             />
+          </div>
+        </div>
+      )}
+
+      {/* 6. CLEAR CURRENT CHAT CONFIRMATION MODAL */}
+      {showClearChatConfirm && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 flex items-center justify-center mb-4">
+              <RotateCcw className="w-6 h-6" />
+            </div>
+            <h3 className="text-lg font-bold text-white">Clear this conversation?</h3>
+            <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+              This will remove all messages from the current conversation. This action cannot be undone.
+            </p>
+            <div className="mt-6 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowClearChatConfirm(false)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleClearCurrentChat}
+                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-lg shadow-red-600/30 transition-all active:scale-95 flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Yes, Clear Chat</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 7. CLEAR ALL HISTORY CONFIRMATION MODAL */}
+      {showClearAllHistoryConfirm && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-red-900/40 rounded-3xl p-6 max-w-md w-full shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 flex items-center justify-center mb-4">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <h3 className="text-lg font-bold text-white">Clear All AI Chat History?</h3>
+            <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+              This will permanently delete all your previous AI conversations and message logs. A fresh new chat will be started.
+            </p>
+            <div className="mt-6 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowClearAllHistoryConfirm(false)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleClearAllHistory}
+                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-lg shadow-red-600/30 transition-all active:scale-95 flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Yes, Delete All History</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

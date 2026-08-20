@@ -232,6 +232,53 @@ export async function saveAIMessage(msg: AIMessage): Promise<AIMessage> {
 }
 
 /**
+ * Clear all messages in a specific conversation
+ */
+export async function clearAIConversationMessages(conversationId: string): Promise<void> {
+  try {
+    const allMsgs = getLocalMessages().filter((m) => m.conversation_id !== conversationId);
+    localStorage.setItem(LOCAL_STORAGE_MESSAGES_KEY, JSON.stringify(allMsgs));
+  } catch (e) {
+    console.warn('Failed to clear local conversation messages:', e);
+  }
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      await supabase.from('ai_messages').delete().eq('conversation_id', conversationId);
+    } catch (e) {
+      console.warn('Supabase clear messages error:', e);
+    }
+  }
+}
+
+/**
+ * Clear all AI conversations and messages for a user
+ */
+export async function clearAllUserAIHistory(userId: string): Promise<void> {
+  try {
+    const userConvs = getLocalConversations().filter((c) => c.user_id === userId);
+    const convIds = userConvs.map((c) => c.id);
+    
+    const remainingConvs = getLocalConversations().filter((c) => c.user_id !== userId);
+    saveLocalConversations(remainingConvs);
+
+    const remainingMsgs = getLocalMessages().filter((m) => !convIds.includes(m.conversation_id));
+    localStorage.setItem(LOCAL_STORAGE_MESSAGES_KEY, JSON.stringify(remainingMsgs));
+  } catch (e) {
+    console.warn('Failed to clear local user AI history:', e);
+  }
+
+  if (isSupabaseConfigured && supabase && userId) {
+    try {
+      await supabase.from('ai_messages').delete().eq('user_id', userId);
+      await supabase.from('ai_conversations').delete().eq('user_id', userId);
+    } catch (e) {
+      console.warn('Supabase clear all user AI history error:', e);
+    }
+  }
+}
+
+/**
  * Delete an AI conversation
  */
 export async function deleteAIConversation(conversationId: string): Promise<void> {
@@ -434,13 +481,16 @@ export function formatFileSize(bytes: number): string {
 
 function sanitizeGeminiContents(rawMessages: any[]) {
   const normalized: Array<{ role: 'user' | 'model'; parts: any[] }> = [];
+  const recentMessages = rawMessages.slice(-12);
 
-  for (const msg of rawMessages) {
+  for (let i = 0; i < recentMessages.length; i++) {
+    const msg = recentMessages[i];
     if (!msg || (msg.role !== 'user' && msg.role !== 'assistant')) continue;
     const targetRole = msg.role === 'assistant' ? 'model' : 'user';
     const parts: any[] = [];
+    const isRecentTurn = i >= recentMessages.length - 2;
 
-    if (Array.isArray(msg.attachments)) {
+    if (isRecentTurn && Array.isArray(msg.attachments)) {
       for (const att of msg.attachments) {
         if (!att) continue;
         const mime = (att.type || '').toLowerCase();
@@ -470,7 +520,7 @@ function sanitizeGeminiContents(rawMessages: any[]) {
           }
         } else if (att.textContent) {
           parts.push({
-            text: `[Attached Document: ${att.name || 'File'}]\n${att.textContent}\n[End of Document]`,
+            text: `[Attached Document: ${att.name || 'File'}]\n${att.textContent.slice(0, 30000)}\n[End of Document]`,
           });
         }
       }
@@ -501,11 +551,11 @@ function sanitizeGeminiContents(rawMessages: any[]) {
 }
 
 const SYSTEM_INSTRUCTION =
-  'You are FRIEND OS AI, a friendly, highly capable AI companion, academic tutor, and study assistant in Friend OS. You answer accurately, thoughtfully, and clearly in whatever language the user communicates in (English, Hindi, Hinglish, Marathi, etc.). Assist students with detailed explanations, homework, coding solutions, math step-by-step reasoning, document summaries, exam prep, and daily campus life. Use clean Markdown with headers, bold points, code blocks, and structured lists.';
+  'You are FRIEND OS AI, a fast, friendly, and highly capable study buddy & academic tutor in Friend OS. Respond concisely, accurately, and immediately. Support English, Hindi, Hinglish, and regional languages. Format solutions with clean Markdown headers, bold key points, and concise code blocks. Deliver answers quickly without unnecessary fluff.';
 
 const GEMINI_CANDIDATE_MODELS = [
-  'gemini-3.7-flash',
   'gemini-flash-latest',
+  'gemini-3.7-flash',
   'gemini-3.1-flash-lite',
 ];
 

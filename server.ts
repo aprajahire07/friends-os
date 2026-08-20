@@ -8,17 +8,22 @@ import mammoth from 'mammoth';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Sanitize messages for Gemini multi-turn API
+// Sanitize messages for Gemini multi-turn API with performance optimizations
 function sanitizeGeminiContents(rawMessages: any[]) {
   const normalized: Array<{ role: 'user' | 'model'; parts: any[] }> = [];
 
-  for (const msg of rawMessages) {
+  // Keep only the most recent 12 messages for ultra-fast response times
+  const recentMessages = rawMessages.slice(-12);
+
+  for (let i = 0; i < recentMessages.length; i++) {
+    const msg = recentMessages[i];
     if (!msg || (msg.role !== 'user' && msg.role !== 'assistant')) continue;
     const targetRole = msg.role === 'assistant' ? 'model' : 'user';
     const parts: any[] = [];
+    const isRecentTurn = i >= recentMessages.length - 2;
 
-    // Attachments
-    if (Array.isArray(msg.attachments)) {
+    // Only attach heavy base64 media on the most recent turns to avoid giant payloads
+    if (isRecentTurn && Array.isArray(msg.attachments)) {
       for (const att of msg.attachments) {
         if (!att) continue;
         const mime = (att.type || '').toLowerCase();
@@ -48,7 +53,7 @@ function sanitizeGeminiContents(rawMessages: any[]) {
           }
         } else if (att.textContent) {
           parts.push({
-            text: `[Attached Document: ${att.name || 'File'}]\n${att.textContent}\n[End of Document]`,
+            text: `[Attached Document: ${att.name || 'File'}]\n${att.textContent.slice(0, 30000)}\n[End of Document]`,
           });
         }
       }
@@ -81,11 +86,12 @@ function sanitizeGeminiContents(rawMessages: any[]) {
 }
 
 const SYSTEM_INSTRUCTION =
-  'You are FRIEND OS AI, a friendly, highly capable AI companion, academic tutor, and study assistant in Friend OS. You answer accurately, thoughtfully, and clearly in whatever language the user communicates in (English, Hindi, Hinglish, Marathi, etc.). Assist students with detailed explanations, homework, coding solutions, math step-by-step reasoning, document summaries, exam prep, and daily campus life. Use clean Markdown with headers, bold points, code blocks, and structured lists.';
+  'You are FRIEND OS AI, a fast, friendly, and highly capable study buddy & academic tutor in Friend OS. Respond concisely, accurately, and immediately. Support English, Hindi, Hinglish, and regional languages. Format solutions with clean Markdown headers, bold key points, and concise code blocks. Deliver answers quickly without unnecessary fluff.';
 
+// Prioritize ultra-fast low-latency models first
 const GEMINI_CANDIDATE_MODELS = [
-  'gemini-3.7-flash',
   'gemini-flash-latest',
+  'gemini-3.7-flash',
   'gemini-3.1-flash-lite',
 ];
 
