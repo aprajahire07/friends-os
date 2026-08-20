@@ -39,7 +39,7 @@ import { withTimeout } from './lib/asyncUtils';
 import { Loader2 } from 'lucide-react';
 
 export function AppContent() {
-  // Read initial ?tab= query parameter from URL (e.g. from push notification clicks)
+  // Read initial ?tab= query parameter from URL
   const getInitialTab = () => {
     try {
       const urlParams = new URLSearchParams(window.location.search);
@@ -71,28 +71,6 @@ export function AppContent() {
   // Reactive store state
   useAppStore();
   const currentUser = appStore.currentUser;
-
-  // Listen for Service Worker Push Notification Click Navigation
-  useEffect(() => {
-    const handleServiceWorkerMessage = (event: MessageEvent) => {
-      if (event.data && event.data.type === 'NAVIGATE_TAB' && event.data.tab) {
-        setActiveTab(event.data.tab);
-        if (event.data.section && toastRef.current) {
-          toastRef.current('Opened via Push Notification', `Viewing ${event.data.section}`, 'info');
-        }
-      }
-    };
-
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage);
-    }
-
-    return () => {
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     let mounted = true;
