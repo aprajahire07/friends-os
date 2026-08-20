@@ -339,7 +339,7 @@ export interface Note {
   uploader_profile?: Profile;
 }
 
-export type AIProvider = 'openai' | 'gemini';
+export type AIProvider = 'gemini';
 
 export interface AIAttachment {
   id: string;

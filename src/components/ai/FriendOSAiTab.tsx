@@ -305,7 +305,7 @@ export const FriendOSAiTab: React.FC = () => {
           conversation_id: targetConvId!,
           user_id: currentUser.id,
           role: 'assistant',
-          content: `⚠️ **Error Generating Response:**\n\n${err.message}\n\n*Please try again, or switch providers between ChatGPT and Google Gemini.*`,
+          content: `⚠️ **Error Generating Response:**\n\n${err.message}\n\n*Please ensure your GEMINI_API_KEY is configured in your project settings, or tap send again in a moment.*`,
           created_at: new Date().toISOString(),
         };
         setMessages((prev) => [...prev, errorAssistantMessage]);
@@ -911,7 +911,7 @@ export const FriendOSAiTab: React.FC = () => {
                   handleSendMessage();
                 }
               }}
-              placeholder={`Ask ${selectedProvider === 'openai' ? 'ChatGPT' : 'Gemini'} or query attached files...`}
+              placeholder="Ask Gemini AI, solve academic problems, or analyze notes/PDFs..."
               className="w-full bg-transparent text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none resize-none max-h-36 overflow-y-auto"
             />
           </div>
