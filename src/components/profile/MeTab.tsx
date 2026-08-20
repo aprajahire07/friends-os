@@ -229,6 +229,21 @@ export const MeTab: React.FC<MeTabProps> = ({
 
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           <button
+            onClick={() => onSelectTab('ai')}
+            className="p-4 rounded-2xl bg-gradient-to-br from-indigo-950/60 via-slate-900 to-slate-900 border border-indigo-500/40 hover:border-indigo-400 flex flex-col items-center gap-2 text-center transition-all group shadow-lg shadow-indigo-950/50"
+          >
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-500 text-white flex items-center justify-center group-hover:scale-110 transition-transform shadow-md shadow-indigo-600/30">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-xs font-extrabold text-white flex items-center justify-center gap-1">
+                <span>AI 🤖</span>
+              </h4>
+              <p className="text-[10px] text-indigo-300 font-medium">Google Gemini AI</p>
+            </div>
+          </button>
+
+          <button
             onClick={() => onSelectTab('college')}
             className="p-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-cyan-500/50 flex flex-col items-center gap-2 text-center transition-all group"
           >

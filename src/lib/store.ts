@@ -60,7 +60,7 @@ import {
   deletePlanFromSupabase
 } from '../services/plans';
 import { fetchMemoriesFromSupabase, addMemoryToSupabase, updateMemoryInSupabase, deleteMemoryFromSupabase } from '../services/memories';
-import { extractYouTubeVideoId } from './youtube';
+import { extractYouTubeVideoId, extractAllYouTubeLinks, formatYouTubePayload } from './youtube';
 import { fetchNotesFromSupabase, createNoteInSupabase, deleteNoteFromSupabase, verifyNotePasswordInSupabase } from '../services/notes';
 import { fetchBorrowedItemsFromSupabase, addBorrowedItemToSupabase, markItemReturnedInSupabase } from '../services/borrowed';
 import { fetchDateAttendanceFromSupabase, markDateAttendanceInSupabase, fetchClassReportsFromSupabase, reportClassCancellationInSupabase } from '../services/attendance';
@@ -1897,14 +1897,18 @@ export const appStore = {
     location?: string, 
     tagged_user_ids: string[] = [],
     youtube_url?: string | null,
-    youtube_video_id?: string | null
+    youtube_video_id?: string | null,
+    youtube_urls?: string[]
   ): Promise<{ success: boolean; memory?: Memory; error?: string }> {
     if (!this.currentUser) return { success: false, error: 'User not logged in' };
     const groupId = this.group?.id;
     const tempId = `mem-${Date.now()}`;
 
-    const cleanYtUrl = youtube_url?.trim() || null;
-    const cleanYtId = youtube_video_id?.trim() || (cleanYtUrl ? extractYouTubeVideoId(cleanYtUrl) : null);
+    const ytPayload = formatYouTubePayload([
+      ...(youtube_urls || []),
+      youtube_url,
+      youtube_video_id
+    ].filter(Boolean) as string[]);
 
     const newMem: Memory = {
       id: tempId,
@@ -1913,8 +1917,10 @@ export const appStore = {
       title,
       caption,
       media_urls: media_urls || [],
-      youtube_url: cleanYtUrl,
-      youtube_video_id: cleanYtId,
+      youtube_url: ytPayload.youtube_url,
+      youtube_video_id: ytPayload.youtube_video_id,
+      youtube_urls: ytPayload.youtube_urls,
+      youtube_video_ids: ytPayload.youtube_video_ids,
       date,
       location,
       tagged_user_ids,
@@ -1929,8 +1935,10 @@ export const appStore = {
         title,
         caption,
         media_urls,
-        youtube_url: cleanYtUrl,
-        youtube_video_id: cleanYtId,
+        youtube_url: ytPayload.youtube_url,
+        youtube_video_id: ytPayload.youtube_video_id,
+        youtube_urls: ytPayload.youtube_urls,
+        youtube_video_ids: ytPayload.youtube_video_ids,
         date,
         location,
         tagged_user_ids
@@ -1939,16 +1947,18 @@ export const appStore = {
       if (remoteMem) {
         const fullMem: Memory = { 
           ...remoteMem, 
-          youtube_url: cleanYtUrl || remoteMem.youtube_url,
-          youtube_video_id: cleanYtId || remoteMem.youtube_video_id,
+          youtube_url: ytPayload.youtube_url || remoteMem.youtube_url,
+          youtube_video_id: ytPayload.youtube_video_id || remoteMem.youtube_video_id,
+          youtube_urls: ytPayload.youtube_urls.length > 0 ? ytPayload.youtube_urls : (remoteMem.youtube_urls || []),
+          youtube_video_ids: ytPayload.youtube_video_ids.length > 0 ? ytPayload.youtube_video_ids : (remoteMem.youtube_video_ids || []),
           creator_profile: this.currentUser 
         };
         this.memories = [fullMem, ...this.memories.filter(m => m.id !== tempId)];
         saveState('memories', this.memories);
         notifyListeners();
 
-        const hasVideo = Boolean(cleanYtId || cleanYtUrl);
-        const icon = hasVideo && (media_urls?.length > 0) ? '📸🎥' : hasVideo ? '🎥' : '📸';
+        const videoCount = ytPayload.youtube_video_ids.length;
+        const icon = videoCount > 0 && (media_urls?.length > 0) ? '📸🎥' : videoCount > 0 ? '🎥' : '📸';
         this.addMessage('memories', `${icon} Shared new group memory: "${title}" (${date})!`);
 
         // Notify tagged users
@@ -1973,8 +1983,8 @@ export const appStore = {
       saveState('memories', this.memories);
       notifyListeners();
       
-      const hasVideo = Boolean(cleanYtId || cleanYtUrl);
-      const icon = hasVideo && (media_urls?.length > 0) ? '📸🎥' : hasVideo ? '🎥' : '📸';
+      const videoCount = ytPayload.youtube_video_ids.length;
+      const icon = videoCount > 0 && (media_urls?.length > 0) ? '📸🎥' : videoCount > 0 ? '🎥' : '📸';
       this.addMessage('memories', `${icon} Shared new group memory: "${title}" (${date})!`);
 
       tagged_user_ids.forEach(uid => {
@@ -2000,8 +2010,11 @@ export const appStore = {
       date?: string;
       location?: string;
       tagged_user_ids?: string[];
+      media_urls?: string[];
       youtube_url?: string | null;
       youtube_video_id?: string | null;
+      youtube_urls?: string[];
+      youtube_video_ids?: string[];
     }
   ): Promise<boolean> {
     if (!this.currentUser) return false;
@@ -2018,8 +2031,30 @@ export const appStore = {
       return false;
     }
 
-    const cleanYtUrl = updates.youtube_url !== undefined ? (updates.youtube_url?.trim() || null) : target.youtube_url;
-    const cleanYtId = updates.youtube_video_id !== undefined ? (updates.youtube_video_id?.trim() || null) : (cleanYtUrl ? extractYouTubeVideoId(cleanYtUrl) : null);
+    let ytPayload: {
+      youtube_url: string | null;
+      youtube_video_id: string | null;
+      youtube_urls: string[];
+      youtube_video_ids: string[];
+    };
+
+    if (updates.youtube_urls !== undefined || updates.youtube_url !== undefined || updates.youtube_video_id !== undefined) {
+      ytPayload = formatYouTubePayload([
+        ...(updates.youtube_urls || []),
+        updates.youtube_url,
+        updates.youtube_video_id
+      ].filter(Boolean) as string[]);
+    } else {
+      ytPayload = formatYouTubePayload([
+        ...(target.youtube_urls || []),
+        target.youtube_url,
+        target.youtube_video_id
+      ].filter(Boolean) as string[]);
+    }
+
+    const cleanMediaUrls = updates.media_urls !== undefined 
+      ? updates.media_urls.filter(Boolean) 
+      : target.media_urls;
 
     const updatedMemory: Memory = {
       ...target,
@@ -2028,8 +2063,14 @@ export const appStore = {
       ...(updates.date !== undefined ? { date: updates.date } : {}),
       ...(updates.location !== undefined ? { location: (updates.location || '').trim() } : {}),
       ...(updates.tagged_user_ids !== undefined ? { tagged_user_ids: updates.tagged_user_ids } : {}),
-      youtube_url: cleanYtUrl,
-      youtube_video_id: cleanYtId,
+      ...(updates.media_urls !== undefined ? { 
+        media_urls: cleanMediaUrls,
+        photos: cleanMediaUrls?.map((url, idx) => ({ storage_path: url, display_order: idx + 1 })) || []
+      } : {}),
+      youtube_url: ytPayload.youtube_url,
+      youtube_video_id: ytPayload.youtube_video_id,
+      youtube_urls: ytPayload.youtube_urls,
+      youtube_video_ids: ytPayload.youtube_video_ids
     };
 
     this.memories = this.memories.map(m => m.id === memoryId ? updatedMemory : m);
@@ -2039,8 +2080,11 @@ export const appStore = {
     if (isSupabaseConfigured) {
       await updateMemoryInSupabase(memoryId, {
         ...updates,
-        youtube_url: cleanYtUrl,
-        youtube_video_id: cleanYtId
+        media_urls: cleanMediaUrls,
+        youtube_url: ytPayload.youtube_url,
+        youtube_video_id: ytPayload.youtube_video_id,
+        youtube_urls: ytPayload.youtube_urls,
+        youtube_video_ids: ytPayload.youtube_video_ids
       });
     }
     return true;

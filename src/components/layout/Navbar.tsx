@@ -5,6 +5,7 @@ import { useToast } from '../ui/Toast';
 import { StatusPicker } from '../friends/StatusPicker';
 import { isUserAdmin } from '../../services/appSettings';
 import { usePWA } from '../../hooks/usePWA';
+import { Avatar } from '../ui/Avatar';
 
 interface NavbarProps {
   activeTab: string;
@@ -80,10 +81,13 @@ export const Navbar: React.FC<NavbarProps> = ({
               onClick={() => setShowUserDropdown(!showUserDropdown)}
               className="flex items-center gap-2 p-1.5 pr-2.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 transition-all text-xs text-white"
             >
-              <img
-                src={currentUser.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${currentUser.username || 'user'}`}
-                alt={currentUser.full_name}
-                className="w-6 h-6 rounded-full object-cover border border-indigo-500/50 bg-slate-800"
+              <Avatar
+                profile={currentUser}
+                src={currentUser.avatar_url}
+                name={currentUser.full_name}
+                username={currentUser.username}
+                size="xs"
+                className="border border-indigo-500/50"
               />
               <span className="font-bold text-xs text-white hidden sm:inline">
                 {currentUser.full_name?.split(' ')[0] || currentUser.username}
@@ -94,14 +98,24 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* User Account Menu */}
             {showUserDropdown && (
               <div className="absolute right-0 mt-2 w-60 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-2 z-50 text-xs animate-in fade-in zoom-in-95 duration-150">
-                <div className="px-3 py-2 border-b border-slate-800/80 mb-1">
-                  <p className="font-bold text-white text-xs truncate">{currentUser.full_name}</p>
-                  <p className="text-[11px] text-slate-400 font-mono truncate">@{currentUser.username}</p>
-                  <span className={`inline-block mt-1 text-[9px] font-bold px-2 py-0.5 rounded-full uppercase ${
-                    isAdmin ? 'bg-indigo-950 border border-indigo-800 text-indigo-400' : 'bg-slate-800 border border-slate-700 text-slate-300'
-                  }`}>
-                    {isAdmin ? '⚙️ Admin' : '👤 Member'}
-                  </span>
+                <div className="px-3 py-2 border-b border-slate-800/80 mb-1 flex items-center gap-2.5">
+                  <Avatar
+                    profile={currentUser}
+                    src={currentUser.avatar_url}
+                    name={currentUser.full_name}
+                    username={currentUser.username}
+                    size="sm"
+                    className="border border-indigo-500/40 shrink-0"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-bold text-white text-xs truncate">{currentUser.full_name}</p>
+                    <p className="text-[11px] text-slate-400 font-mono truncate">@{currentUser.username}</p>
+                    <span className={`inline-block mt-1 text-[9px] font-bold px-2 py-0.5 rounded-full uppercase ${
+                      isAdmin ? 'bg-indigo-950 border border-indigo-800 text-indigo-400' : 'bg-slate-800 border border-slate-700 text-slate-300'
+                    }`}>
+                      {isAdmin ? '⚙️ Admin' : '👤 Member'}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="space-y-0.5">
@@ -130,6 +144,17 @@ export const Navbar: React.FC<NavbarProps> = ({
                       <span>📱 Install Friend OS App</span>
                     </button>
                   )}
+
+                  <button
+                    onClick={() => {
+                      setShowUserDropdown(false);
+                      setActiveTab('ai');
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-indigo-300 hover:bg-indigo-950/60 hover:text-white transition-colors text-left font-bold"
+                  >
+                    <Sparkles className="w-4 h-4 text-cyan-400" />
+                    <span>🤖 Friend OS AI</span>
+                  </button>
 
                   <button
                     onClick={() => {

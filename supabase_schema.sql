@@ -1145,4 +1145,47 @@ CREATE POLICY "Private Snaps Access" ON storage.objects FOR ALL USING (bucket_id
 DROP POLICY IF EXISTS "Private Notes Access" ON storage.objects;
 CREATE POLICY "Private Notes Access" ON storage.objects FOR ALL USING (bucket_id IN ('notes', 'study-notes', 'documents') AND auth.role() = 'authenticated');
 
+-- 15. FRIEND OS AI CHAT CONVERSATIONS & MESSAGES
+CREATE TABLE IF NOT EXISTS public.ai_conversations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  provider TEXT NOT NULL DEFAULT 'gemini' CHECK (provider IN ('openai', 'gemini')),
+  title TEXT NOT NULL DEFAULT 'New Chat',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.ai_messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id UUID REFERENCES public.ai_conversations(id) ON DELETE CASCADE NOT NULL,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
+  content TEXT NOT NULL,
+  attachments JSONB DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- AI Tables RLS
+ALTER TABLE public.ai_conversations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_messages ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can only manage their own AI conversations" ON public.ai_conversations;
+CREATE POLICY "Users can only manage their own AI conversations"
+  ON public.ai_conversations
+  FOR ALL
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can only manage their own AI messages" ON public.ai_messages;
+CREATE POLICY "Users can only manage their own AI messages"
+  ON public.ai_messages
+  FOR ALL
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+-- Indexes for lightning fast AI conversation and history queries
+CREATE INDEX IF NOT EXISTS idx_ai_conversations_user_id ON public.ai_conversations(user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_messages_conversation_id ON public.ai_messages(conversation_id, created_at ASC);
+
+
 

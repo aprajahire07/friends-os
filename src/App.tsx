@@ -13,6 +13,7 @@ import { BorrowedTracker } from './components/borrowed/BorrowedTracker';
 import { CollegeClassesTab } from './components/college/CollegeClassesTab';
 import { NotesList } from './components/notes/NotesList';
 import { UploadNoteModal } from './components/notes/UploadNoteModal';
+import { FriendOSAiTab } from './components/ai/FriendOSAiTab';
 import { MeTab } from './components/profile/MeTab';
 import { PaymentQRModal } from './components/expenses/PaymentQRModal';
 import { FriendProfileModal } from './components/friends/FriendProfileModal';
@@ -240,8 +241,8 @@ export function AppContent() {
         />
 
         <main className={`flex-1 overflow-x-hidden ${
-          activeTab === 'chat' 
-            ? 'p-1 sm:p-2 md:p-4 flex flex-col h-[calc(100dvh-3.75rem)] md:h-[calc(100vh-4rem)] pb-[calc(4.25rem+env(safe-area-inset-bottom,0px))] md:pb-4 min-h-0' 
+          activeTab === 'chat' || activeTab === 'ai'
+            ? 'p-0 sm:p-1 md:p-2 flex flex-col h-[calc(100dvh-3.75rem)] md:h-[calc(100vh-4rem)] min-h-0' 
             : 'p-4 md:p-6 pb-24 md:pb-6'
         }`}>
           <ErrorBoundary key={activeTab} fallbackTitle="View Error">
@@ -254,6 +255,10 @@ export function AppContent() {
                 }}
                 onOpenAddMoney={() => setShowAddMoneyModal(true)}
                 onOpenCreatePlan={() => setShowCreatePlanModal(true)}
+                onOpenAddMemory={() => setShowAddMemoryModal(true)}
+                onOpenAddBorrowed={() => setShowAddBorrowedModal(true)}
+                onOpenAddNote={() => setShowAddNoteModal(true)}
+                onOpenInstallPWA={() => setShowPWAInstallModal(true)}
               />
             )}
 
@@ -273,6 +278,10 @@ export function AppContent() {
                 initialFriendId={activeChatFriendId} 
                 onOpenProfile={handleOpenFriendProfile} 
               />
+            )}
+
+            {activeTab === 'ai' && (
+              <FriendOSAiTab />
             )}
 
             {activeTab === 'expenses' && (
@@ -395,8 +404,10 @@ export function AppContent() {
 
 export default function App() {
   return (
-    <ToastProvider>
-      <AppContent />
-    </ToastProvider>
+    <ErrorBoundary fallbackTitle="Friend OS">
+      <ToastProvider>
+        <AppContent />
+      </ToastProvider>
+    </ErrorBoundary>
   );
 }

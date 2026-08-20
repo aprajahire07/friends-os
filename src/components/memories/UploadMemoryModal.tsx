@@ -14,12 +14,14 @@ import {
   CheckCircle2, 
   UploadCloud,
   Video,
-  Sparkles
+  Sparkles,
+  ExternalLink,
+  Play
 } from 'lucide-react';
 import { appStore, useAppStore } from '../../lib/store';
 import { useToast } from '../ui/Toast';
 import { validateUploadFile, uploadFileToStorage } from '../../services/storage';
-import { extractYouTubeVideoId, isValidYouTubeUrl, getYouTubeThumbnailUrl } from '../../lib/youtube';
+import { extractYouTubeVideoId, isValidYouTubeUrl, getYouTubeThumbnailUrl, extractAllYouTubeLinks, YouTubeLinkItem } from '../../lib/youtube';
 
 interface UploadMemoryModalProps {
   isOpen: boolean;
@@ -50,10 +52,10 @@ export const UploadMemoryModal: React.FC<UploadMemoryModalProps> = ({ isOpen, on
   const [taggedUserIds, setTaggedUserIds] = useState<string[]>([]);
   const [photoItems, setPhotoItems] = useState<PhotoUploadItem[]>([]);
   
-  // YouTube Video section state
+  // YouTube Videos section state (Supports multiple videos)
+  const [youtubeVideos, setYoutubeVideos] = useState<YouTubeLinkItem[]>([]);
   const [showYoutubeInput, setShowYoutubeInput] = useState(false);
   const [youtubeInput, setYoutubeInput] = useState('');
-  const [youtubeUrl, setYoutubeUrl] = useState('');
   const [youtubeError, setYoutubeError] = useState<string | null>(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -178,27 +180,55 @@ export const UploadMemoryModal: React.FC<UploadMemoryModalProps> = ({ isOpen, on
     setPhotoItems(newArr);
   };
 
-  const handleApplyYoutubeUrl = () => {
+  const handleAddYoutubeLinks = () => {
     const trimmed = youtubeInput.trim();
     if (!trimmed) {
-      setYoutubeUrl('');
+      setYoutubeError('Please enter one or more YouTube links.');
+      return;
+    }
+
+    const parsed = extractAllYouTubeLinks(trimmed);
+    if (parsed.length === 0) {
+      setYoutubeError('No valid YouTube video links found. (e.g. youtube.com/watch?v=... or youtu.be/...)');
+      return;
+    }
+
+    // Merge without duplicates
+    const existingVideoIds = new Set(youtubeVideos.map(v => v.videoId));
+    const newVideos: YouTubeLinkItem[] = [];
+
+    for (const item of parsed) {
+      if (!existingVideoIds.has(item.videoId)) {
+        newVideos.push(item);
+        existingVideoIds.add(item.videoId);
+      }
+    }
+
+    if (newVideos.length === 0) {
+      setYoutubeError('These YouTube videos are already in the list.');
+      return;
+    }
+
+    const updated = [...youtubeVideos, ...newVideos];
+    if (updated.length > 10) {
+      setYoutubeError('You can add up to 10 YouTube videos per memory post.');
+      setYoutubeVideos(updated.slice(0, 10));
+    } else {
+      setYoutubeVideos(updated);
       setYoutubeError(null);
-      return;
     }
 
-    const videoId = extractYouTubeVideoId(trimmed);
-    if (!videoId) {
-      setYoutubeError('Please enter a valid YouTube video link.');
-      return;
-    }
-
-    setYoutubeUrl(trimmed);
-    setYoutubeError(null);
+    setYoutubeInput('');
+    setShowYoutubeInput(false);
   };
 
-  const handleRemoveYoutube = () => {
+  const handleRemoveYoutubeVideo = (videoIdToRemove: string) => {
+    setYoutubeVideos(prev => prev.filter(v => v.videoId !== videoIdToRemove));
+  };
+
+  const handleClearAllYoutube = () => {
+    setYoutubeVideos([]);
     setYoutubeInput('');
-    setYoutubeUrl('');
     setYoutubeError(null);
     setShowYoutubeInput(false);
   };
@@ -211,8 +241,6 @@ export const UploadMemoryModal: React.FC<UploadMemoryModalProps> = ({ isOpen, on
     }
   };
 
-  const currentVideoId = youtubeUrl ? extractYouTubeVideoId(youtubeUrl) : null;
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
@@ -222,10 +250,21 @@ export const UploadMemoryModal: React.FC<UploadMemoryModalProps> = ({ isOpen, on
       return;
     }
 
-    const hasPhotos = photoItems.length > 0;
-    const hasVideo = Boolean(currentVideoId);
+    // Check if user has an unsubmitted video URL in input box
+    let finalVideos = [...youtubeVideos];
+    if (youtubeInput.trim()) {
+      const parsedUnsubmitted = extractAllYouTubeLinks(youtubeInput.trim());
+      for (const item of parsedUnsubmitted) {
+        if (!finalVideos.some(v => v.videoId === item.videoId)) {
+          finalVideos.push(item);
+        }
+      }
+    }
 
-    if (!hasPhotos && !hasVideo) {
+    const hasPhotos = photoItems.length > 0;
+    const hasVideos = finalVideos.length > 0;
+
+    if (!hasPhotos && !hasVideos) {
       setErrorMsg('Please add at least one photo or a YouTube video.');
       return;
     }
@@ -250,10 +289,14 @@ export const UploadMemoryModal: React.FC<UploadMemoryModalProps> = ({ isOpen, on
       .map(p => p.storagePath)
       .filter((p): p is string => Boolean(p));
 
-    if (hasPhotos && validPaths.length === 0 && !hasVideo) {
+    if (hasPhotos && validPaths.length === 0 && !hasVideos) {
       setErrorMsg('No valid media found. Please upload photos or add a YouTube video.');
       return;
     }
+
+    const ytUrlsList = finalVideos.map(v => v.url);
+    const primaryYtUrl = ytUrlsList[0] || null;
+    const primaryYtId = finalVideos[0]?.videoId || null;
 
     setIsSubmitting(true);
     try {
@@ -264,16 +307,20 @@ export const UploadMemoryModal: React.FC<UploadMemoryModalProps> = ({ isOpen, on
         date,
         location.trim(),
         taggedUserIds,
-        youtubeUrl ? youtubeUrl.trim() : null,
-        currentVideoId
+        primaryYtUrl,
+        primaryYtId,
+        ytUrlsList
       );
 
       if (res && res.success) {
-        const mediaDesc = hasPhotos && hasVideo 
-          ? `${validPaths.length} photo(s) & YouTube video` 
-          : hasVideo 
-            ? 'YouTube video' 
-            : `${validPaths.length} photo(s)`;
+        const parts: string[] = [];
+        if (validPaths.length > 0) {
+          parts.push(`${validPaths.length} photo${validPaths.length > 1 ? 's' : ''}`);
+        }
+        if (finalVideos.length > 0) {
+          parts.push(`${finalVideos.length} YouTube video${finalVideos.length > 1 ? 's' : ''}`);
+        }
+        const mediaDesc = parts.join(' & ') || 'media';
 
         showToast(
           'Memory Created!', 
@@ -294,7 +341,7 @@ export const UploadMemoryModal: React.FC<UploadMemoryModalProps> = ({ isOpen, on
   const hasUploading = photoItems.some(p => p.status === 'uploading');
   const hasErrors = photoItems.some(p => p.status === 'error');
   const allSuccess = photoItems.length > 0 && photoItems.every(p => p.status === 'success');
-  const hasAnyMedia = photoItems.length > 0 || Boolean(currentVideoId);
+  const hasAnyMedia = photoItems.length > 0 || youtubeVideos.length > 0 || Boolean(youtubeInput.trim());
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
@@ -336,78 +383,112 @@ export const UploadMemoryModal: React.FC<UploadMemoryModalProps> = ({ isOpen, on
           </div>
 
           {/* Optional YouTube Video Section */}
-          <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-3 space-y-2">
+          <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-3 space-y-2.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Video className="w-4 h-4 text-red-400" />
-                <span className="text-xs font-bold text-slate-200">🎥 Add YouTube Video</span>
-                <span className="text-[10px] text-slate-400">(optional)</span>
+                <span className="text-xs font-bold text-slate-200">🎥 Add YouTube Videos</span>
+                {youtubeVideos.length > 0 ? (
+                  <span className="px-1.5 py-0.5 rounded-full bg-red-950/80 border border-red-800/60 text-red-400 text-[10px] font-bold">
+                    {youtubeVideos.length}/10
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-slate-400">(optional)</span>
+                )}
               </div>
-              {!showYoutubeInput && !currentVideoId && (
-                <button
-                  type="button"
-                  onClick={() => setShowYoutubeInput(true)}
-                  disabled={isSubmitting}
-                  className="px-2.5 py-1 rounded-lg bg-red-950/60 border border-red-800/60 text-red-300 hover:bg-red-900/80 text-[11px] font-bold transition-colors flex items-center gap-1.5"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add YouTube video</span>
-                </button>
-              )}
-            </div>
-
-            {/* If video is added and validated */}
-            {currentVideoId ? (
-              <div className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-900 border border-red-900/40">
-                <div className="relative w-20 aspect-video rounded-lg overflow-hidden bg-black shrink-0 border border-red-500/20">
-                  <img
-                    src={getYouTubeThumbnailUrl(currentVideoId, 'mq')}
-                    alt="YouTube thumbnail"
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
-                    <Video className="w-4 h-4 text-red-400 drop-shadow" />
-                  </div>
-                </div>
-
-                <div className="min-w-0 flex-1 space-y-0.5">
-                  <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-bold">
-                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                    <span>✓ YouTube video added</span>
-                  </div>
-                  <p className="text-[10px] text-slate-400 truncate font-mono">
-                    ID: {currentVideoId}
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-1 shrink-0">
+              <div className="flex items-center gap-1.5">
+                {youtubeVideos.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleClearAllYoutube}
+                    disabled={isSubmitting}
+                    className="text-[10px] font-semibold text-rose-400 hover:text-rose-300 transition-colors px-2 py-0.5"
+                  >
+                    Clear All
+                  </button>
+                )}
+                {youtubeVideos.length < 10 && (
                   <button
                     type="button"
                     onClick={() => {
-                      setYoutubeInput(youtubeUrl);
                       setShowYoutubeInput(true);
+                      setYoutubeError(null);
                     }}
-                    className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-colors"
+                    disabled={isSubmitting}
+                    className="px-2.5 py-1 rounded-lg bg-red-950/60 border border-red-800/60 text-red-300 hover:bg-red-900/80 text-[11px] font-bold transition-colors flex items-center gap-1.5"
                   >
-                    Edit
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>{youtubeVideos.length > 0 ? 'Add more videos' : 'Add YouTube video'}</span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={handleRemoveYoutube}
-                    className="p-1.5 rounded-lg bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-800/60 transition-colors"
-                    title="Remove Video"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                )}
               </div>
-            ) : showYoutubeInput ? (
+            </div>
+
+            {/* List of Added YouTube Videos */}
+            {youtubeVideos.length > 0 && (
+              <div className="space-y-2 pt-1">
+                {youtubeVideos.map((video, idx) => (
+                  <div 
+                    key={video.videoId + idx} 
+                    className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-900 border border-red-900/40 hover:border-red-800/60 transition-colors"
+                  >
+                    <div className="relative w-20 aspect-video rounded-lg overflow-hidden bg-black shrink-0 border border-red-500/20">
+                      <img
+                        src={getYouTubeThumbnailUrl(video.videoId, 'mq')}
+                        alt="YouTube thumbnail"
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
+                        <Video className="w-4 h-4 text-red-400 drop-shadow" />
+                      </div>
+                      <div className="absolute top-1 left-1 px-1 py-0.2 bg-black/70 rounded text-[9px] font-mono text-white">
+                        #{idx + 1}
+                      </div>
+                    </div>
+
+                    <div className="min-w-0 flex-1 space-y-0.5">
+                      <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-bold">
+                        <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                        <span>Video #{idx + 1} Added</span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 truncate font-mono">
+                        ID: {video.videoId}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <a
+                        href={video.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+                        title="Open in YouTube"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveYoutubeVideo(video.videoId)}
+                        disabled={isSubmitting}
+                        className="p-1.5 rounded-lg bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-800/60 transition-colors"
+                        title="Remove Video"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Input field for YouTube link(s) */}
+            {(showYoutubeInput || youtubeVideos.length === 0) && (
               <div className="space-y-2 pt-1">
                 <div className="flex gap-2">
                   <input
                     type="url"
                     disabled={isSubmitting}
-                    placeholder="Paste YouTube URL (e.g. youtube.com/watch?v=... or youtu.be/...)"
+                    placeholder="Paste YouTube link (multiple links or IDs separated by space/comma supported)..."
                     value={youtubeInput}
                     onChange={e => {
                       setYoutubeInput(e.target.value);
@@ -416,28 +497,32 @@ export const UploadMemoryModal: React.FC<UploadMemoryModalProps> = ({ isOpen, on
                     onKeyDown={e => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
-                        handleApplyYoutubeUrl();
+                        handleAddYoutubeLinks();
                       }
                     }}
                     className="flex-1 px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-red-500 transition-colors"
                   />
                   <button
                     type="button"
-                    onClick={handleApplyYoutubeUrl}
-                    className="px-3 py-2 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded-xl shadow-sm transition-colors shrink-0"
+                    onClick={handleAddYoutubeLinks}
+                    disabled={isSubmitting || !youtubeInput.trim()}
+                    className="px-3 py-2 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-sm transition-colors shrink-0 flex items-center gap-1"
                   >
-                    Add
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add</span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowYoutubeInput(false);
-                      setYoutubeError(null);
-                    }}
-                    className="p-2 text-slate-400 hover:text-white rounded-xl bg-slate-800 hover:bg-slate-700 transition-colors"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+                  {youtubeVideos.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowYoutubeInput(false);
+                        setYoutubeError(null);
+                      }}
+                      className="p-2 text-slate-400 hover:text-white rounded-xl bg-slate-800 hover:bg-slate-700 transition-colors"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
 
                 {youtubeError && (
@@ -447,10 +532,10 @@ export const UploadMemoryModal: React.FC<UploadMemoryModalProps> = ({ isOpen, on
                   </p>
                 )}
                 <p className="text-[10px] text-slate-400">
-                  Examples: youtube.com/watch?v=..., youtu.be/..., youtube.com/shorts/...
+                  Supports video URLs, Shorts, and youtu.be links. You can add multiple videos to the same memory!
                 </p>
               </div>
-            ) : null}
+            )}
           </div>
 
           {/* Multiple Photo Selection & Previews */}
@@ -701,7 +786,7 @@ export const UploadMemoryModal: React.FC<UploadMemoryModalProps> = ({ isOpen, on
               </>
             ) : (
               <span>
-                Publish Memory ({photoItems.length > 0 && `${photoItems.length} Photo${photoItems.length > 1 ? 's' : ''}`}{photoItems.length > 0 && currentVideoId && ' + '}{currentVideoId && '1 YouTube Video'}{!hasAnyMedia && 'Add Media'})
+                Publish Memory ({photoItems.length > 0 && `${photoItems.length} Photo${photoItems.length > 1 ? 's' : ''}`}{photoItems.length > 0 && youtubeVideos.length > 0 && ' + '}{youtubeVideos.length > 0 && `${youtubeVideos.length} YouTube Video${youtubeVideos.length > 1 ? 's' : ''}`}{!hasAnyMedia && 'Add Media'})
               </span>
             )}
           </button>

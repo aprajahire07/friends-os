@@ -25,6 +25,15 @@ const sizeClasses: Record<string, string> = {
   '2xl': 'w-20 h-20 text-xl'
 };
 
+const getInitials = (text: string): string => {
+  if (!text) return 'F';
+  const parts = text.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  return text.substring(0, 2).toUpperCase();
+};
+
 export const Avatar: React.FC<AvatarProps> = ({
   profile,
   src,
@@ -38,7 +47,7 @@ export const Avatar: React.FC<AvatarProps> = ({
   title,
   alt
 }) => {
-  const [hasError, setHasError] = useState(false);
+  const [errorCount, setErrorCount] = useState(0);
 
   // Extract best identity cues
   const rawUrl = src || profile?.avatar_url;
@@ -48,8 +57,8 @@ export const Avatar: React.FC<AvatarProps> = ({
 
   // Resolve media URL if it's stored in Supabase storage
   const resolvedUrl = React.useMemo(() => {
-    if (!rawUrl) return null;
-    return getSyncMediaUrl('avatars', rawUrl);
+    if (!rawUrl || typeof rawUrl !== 'string' || !rawUrl.trim()) return null;
+    return getSyncMediaUrl('avatars', rawUrl.trim());
   }, [rawUrl]);
 
   // Generate reliable fallback avatar based on username or initials
@@ -60,13 +69,17 @@ export const Avatar: React.FC<AvatarProps> = ({
 
   // Reset error status if the input src or profile changes
   useEffect(() => {
-    setHasError(false);
-  }, [resolvedUrl]);
+    setErrorCount(0);
+  }, [resolvedUrl, rawUrl]);
 
   const sizeClass = typeof size === 'number' ? `w-[${size}px] h-[${size}px]` : (sizeClasses[size] || sizeClasses.md);
   const inlineSize = typeof size === 'number' ? { width: size, height: size } : undefined;
 
-  const currentSrc = !hasError && resolvedUrl ? resolvedUrl : fallbackUrl;
+  // Level 0: resolvedUrl (if available), Level 1: fallback DiceBear, Level 2: Styled Initials Badge
+  const showInitials = errorCount >= 2 || (!resolvedUrl && !fallbackUrl);
+  const currentSrc = errorCount === 0 && resolvedUrl ? resolvedUrl : fallbackUrl;
+
+  const initials = getInitials(fullName || uname);
 
   return (
     <div 
@@ -74,19 +87,26 @@ export const Avatar: React.FC<AvatarProps> = ({
       onClick={onClick}
       title={title || fullName}
     >
-      <img
-        src={currentSrc}
-        alt={alt || fullName}
-        referrerPolicy="no-referrer"
-        loading="lazy"
-        onError={() => {
-          if (!hasError) {
-            setHasError(true);
-          }
-        }}
-        style={inlineSize}
-        className={`${sizeClass} rounded-full object-cover border border-slate-700/80 bg-slate-900 shadow-sm transition-all ${className}`}
-      />
+      {showInitials ? (
+        <div
+          style={inlineSize}
+          className={`${sizeClass} rounded-full bg-gradient-to-tr from-indigo-600 to-violet-500 text-white font-extrabold flex items-center justify-center border border-indigo-400/50 shadow-sm select-none ${className}`}
+        >
+          {initials}
+        </div>
+      ) : (
+        <img
+          src={currentSrc}
+          alt={alt || fullName}
+          referrerPolicy="no-referrer"
+          loading="lazy"
+          onError={() => {
+            setErrorCount((prev) => prev + 1);
+          }}
+          style={inlineSize}
+          className={`${sizeClass} rounded-full object-cover border border-slate-700/80 bg-slate-900 shadow-sm transition-all ${className}`}
+        />
+      )}
 
       {showStatus && emoji && (
         <span 

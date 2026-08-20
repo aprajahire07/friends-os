@@ -157,6 +157,8 @@ export interface Memory {
   photos?: MemoryPhoto[];
   youtube_url?: string | null;
   youtube_video_id?: string | null;
+  youtube_urls?: string[];
+  youtube_video_ids?: string[];
   date: string;
   location?: string;
   tagged_user_ids: string[];
@@ -337,6 +339,40 @@ export interface Note {
   uploader_profile?: Profile;
 }
 
+export type AIProvider = 'openai' | 'gemini';
+
+export interface AIAttachment {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  previewUrl?: string;
+  base64Data?: string;
+  textContent?: string;
+  storagePath?: string;
+}
+
+export interface AIMessage {
+  id: string;
+  conversation_id: string;
+  user_id?: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  attachments?: AIAttachment[];
+  created_at: string;
+  isStreaming?: boolean;
+}
+
+export interface AIConversation {
+  id: string;
+  user_id: string;
+  provider: AIProvider;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  messages?: AIMessage[];
+}
+
 export type NavigationTab = 
   | 'home'
   | 'friends'
@@ -351,6 +387,7 @@ export type NavigationTab =
   | 'dates'
   | 'college'
   | 'attendance'
+  | 'ai'
   | 'notifications'
   | 'profile'
   | 'me'

@@ -14,7 +14,9 @@ import {
   ShieldCheck,
   FileText,
   Download,
-  Smartphone
+  Smartphone,
+  Sparkles,
+  Bot
 } from 'lucide-react';
 import { appStore, useAppStore } from '../../lib/store';
 import { isUserAdmin } from '../../services/appSettings';
@@ -57,6 +59,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'plans', label: 'Plans', icon: CalendarDays, badge: null },
     { id: 'snaps', label: 'Snaps', icon: Camera, badge: unopenedSnapsCount > 0 ? unopenedSnapsCount : null },
     { id: 'college', label: 'College & Attendance', icon: GraduationCap, badge: null },
+    { id: 'ai', label: 'AI 🤖', icon: Sparkles, badge: null },
     { id: 'memories', label: 'Memories', icon: Images, badge: null },
     { id: 'notes', label: '📚 Notes', icon: FileText, badge: null },
     { id: 'borrowed', label: 'Borrowed Items', icon: Backpack, badge: null },

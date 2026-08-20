@@ -1,6 +1,6 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { Memory, MemoryPhoto } from '../types';
-import { extractYouTubeVideoId } from '../lib/youtube';
+import { extractYouTubeVideoId, extractAllYouTubeLinks, formatYouTubePayload } from '../lib/youtube';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -84,8 +84,12 @@ export async function fetchMemoriesFromSupabase(): Promise<Memory[] | null> {
       }
 
       const mediaUrls = photoList.map(p => p.storage_path).filter(Boolean);
-      const ytUrl = m.youtube_url || null;
-      const ytVideoId = m.youtube_video_id || (ytUrl ? extractYouTubeVideoId(ytUrl) : null);
+      const rawYtUrl = m.youtube_url || null;
+      const rawYtId = m.youtube_video_id || null;
+      
+      const parsedYt = extractAllYouTubeLinks([rawYtUrl, rawYtId].filter(Boolean));
+      const ytUrls = parsedYt.map(p => p.url);
+      const ytVideoIds = parsedYt.map(p => p.videoId);
 
       return {
         id: m.id,
@@ -95,8 +99,10 @@ export async function fetchMemoriesFromSupabase(): Promise<Memory[] | null> {
         caption: m.caption || '',
         media_urls: mediaUrls,
         photos: photoList,
-        youtube_url: ytUrl,
-        youtube_video_id: ytVideoId,
+        youtube_url: rawYtUrl || ytUrls[0] || null,
+        youtube_video_id: rawYtId || ytVideoIds[0] || null,
+        youtube_urls: ytUrls,
+        youtube_video_ids: ytVideoIds,
         date: m.memory_date,
         location: m.location || '',
         tagged_user_ids: (m.memory_tags || []).map((tag: any) => tag.user_id).filter(Boolean),
@@ -121,6 +127,8 @@ export async function addMemoryToSupabase(memory: {
   media_urls?: string[];
   youtube_url?: string | null;
   youtube_video_id?: string | null;
+  youtube_urls?: string[];
+  youtube_video_ids?: string[];
   date: string;
   location?: string;
   tagged_user_ids?: string[];
@@ -178,8 +186,11 @@ export async function addMemoryToSupabase(memory: {
       }
     }
 
-    const cleanYoutubeUrl = memory.youtube_url?.trim() || null;
-    const cleanYoutubeVideoId = memory.youtube_video_id?.trim() || (cleanYoutubeUrl ? extractYouTubeVideoId(cleanYoutubeUrl) : null);
+    const ytPayload = formatYouTubePayload([
+      ...(memory.youtube_urls || []),
+      memory.youtube_url,
+      memory.youtube_video_id
+    ].filter(Boolean) as string[]);
 
     // 1. Insert parent Memory record
     const payload: any = {
@@ -188,8 +199,8 @@ export async function addMemoryToSupabase(memory: {
       caption: (memory.caption || '').trim(),
       memory_date: memory.date || new Date().toISOString().split('T')[0],
       location: (memory.location || '').trim(),
-      youtube_url: cleanYoutubeUrl,
-      youtube_video_id: cleanYoutubeVideoId
+      youtube_url: ytPayload.youtube_url,
+      youtube_video_id: ytPayload.youtube_video_id
     };
 
     if (effectiveGroupId && isValidUUID(effectiveGroupId)) {
@@ -296,8 +307,10 @@ export async function addMemoryToSupabase(memory: {
       caption: parentRecord.caption,
       media_urls: cleanMediaUrls,
       photos: createdPhotos.length > 0 ? createdPhotos : cleanMediaUrls.map((url, i) => ({ storage_path: url, display_order: i + 1 })),
-      youtube_url: cleanYoutubeUrl,
-      youtube_video_id: cleanYoutubeVideoId,
+      youtube_url: ytPayload.youtube_url,
+      youtube_video_id: ytPayload.youtube_video_id,
+      youtube_urls: ytPayload.youtube_urls,
+      youtube_video_ids: ytPayload.youtube_video_ids,
       date: parentRecord.memory_date,
       location: parentRecord.location,
       tagged_user_ids: memory.tagged_user_ids || [],
@@ -320,8 +333,11 @@ export async function updateMemoryInSupabase(
     caption?: string;
     date?: string;
     location?: string;
+    media_urls?: string[];
     youtube_url?: string | null;
     youtube_video_id?: string | null;
+    youtube_urls?: string[];
+    youtube_video_ids?: string[];
     tagged_user_ids?: string[];
   }
 ): Promise<boolean> {
@@ -334,11 +350,14 @@ export async function updateMemoryInSupabase(
     if (updates.date !== undefined) payload.memory_date = updates.date;
     if (updates.location !== undefined) payload.location = (updates.location || '').trim();
 
-    if (updates.youtube_url !== undefined || updates.youtube_video_id !== undefined) {
-      const cleanUrl = updates.youtube_url ? updates.youtube_url.trim() : null;
-      const cleanId = updates.youtube_video_id ? updates.youtube_video_id.trim() : (cleanUrl ? extractYouTubeVideoId(cleanUrl) : null);
-      payload.youtube_url = cleanUrl;
-      payload.youtube_video_id = cleanId;
+    if (updates.youtube_urls !== undefined || updates.youtube_url !== undefined || updates.youtube_video_id !== undefined) {
+      const ytPayload = formatYouTubePayload([
+        ...(updates.youtube_urls || []),
+        updates.youtube_url,
+        updates.youtube_video_id
+      ].filter(Boolean) as string[]);
+      payload.youtube_url = ytPayload.youtube_url;
+      payload.youtube_video_id = ytPayload.youtube_video_id;
     }
 
     payload.updated_at = new Date().toISOString();
@@ -357,6 +376,43 @@ export async function updateMemoryInSupabase(
       } else {
         console.warn('Supabase update memory error:', error.message);
         return false;
+      }
+    }
+
+    // Update child photos if media_urls provided
+    if (updates.media_urls !== undefined) {
+      const cleanMediaUrls = updates.media_urls.filter(url => Boolean(url && typeof url === 'string'));
+
+      try {
+        // Delete previous memory_photos
+        await supabase.from('memory_photos').delete().eq('memory_id', memoryId);
+
+        if (cleanMediaUrls.length > 0) {
+          const photoRows = cleanMediaUrls.map((url, idx) => ({
+            memory_id: memoryId,
+            storage_path: url,
+            display_order: idx + 1
+          }));
+          await supabase.from('memory_photos').insert(photoRows);
+        }
+      } catch (photoEx) {
+        console.warn('Exception updating memory_photos:', photoEx);
+      }
+
+      try {
+        // Delete previous memory_media
+        await supabase.from('memory_media').delete().eq('memory_id', memoryId);
+
+        if (cleanMediaUrls.length > 0) {
+          const mediaRows = cleanMediaUrls.map(url => ({
+            memory_id: memoryId,
+            storage_path: url,
+            media_type: url.match(/\.(mp4|webm|mov|mkv)$/i) ? 'video' : 'image'
+          }));
+          await supabase.from('memory_media').insert(mediaRows);
+        }
+      } catch (mediaEx) {
+        console.warn('Exception updating memory_media:', mediaEx);
       }
     }
 
