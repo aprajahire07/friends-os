@@ -293,7 +293,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
           {/* Quick Memory */}
           <button
             type="button"
-            onClick={onOpenAddMemory || (() => onSelectTab('memories'))}
+            onClick={() => onSelectTab('memories')}
             className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-pink-500/50 hover:bg-slate-800/60 flex flex-col items-center justify-center gap-1.5 text-slate-100 transition-all active:scale-95 group shadow-lg"
           >
             <div className="w-10 h-10 rounded-xl bg-pink-500/10 text-pink-400 group-hover:scale-110 transition-transform flex items-center justify-center">
@@ -305,7 +305,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
           {/* Quick Note */}
           <button
             type="button"
-            onClick={onOpenAddNote || (() => onSelectTab('notes'))}
+            onClick={() => onSelectTab('notes')}
             className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-amber-500/50 hover:bg-slate-800/60 flex flex-col items-center justify-center gap-1.5 text-slate-100 transition-all active:scale-95 group shadow-lg"
           >
             <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-400 group-hover:scale-110 transition-transform flex items-center justify-center">

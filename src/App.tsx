@@ -255,9 +255,9 @@ export function AppContent() {
                 }}
                 onOpenAddMoney={() => setShowAddMoneyModal(true)}
                 onOpenCreatePlan={() => setShowCreatePlanModal(true)}
-                onOpenAddMemory={() => setShowAddMemoryModal(true)}
+                onOpenAddMemory={() => setActiveTab('memories')}
                 onOpenAddBorrowed={() => setShowAddBorrowedModal(true)}
-                onOpenAddNote={() => setShowAddNoteModal(true)}
+                onOpenAddNote={() => setActiveTab('notes')}
                 onOpenInstallPWA={() => setShowPWAInstallModal(true)}
               />
             )}
