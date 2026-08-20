@@ -17,7 +17,9 @@ import {
   Building2,
   Calendar,
   AlertCircle,
-  FileText
+  FileText,
+  BarChart3,
+  Award
 } from 'lucide-react';
 import { appStore, useAppStore } from '../../lib/store';
 import { 
@@ -32,7 +34,11 @@ import {
 } from '../../lib/timetables';
 import { useToast } from '../ui/Toast';
 
-export const CollegeClassesTab: React.FC = () => {
+interface CollegeClassesTabProps {
+  onSelectTab?: (tab: string) => void;
+}
+
+export const CollegeClassesTab: React.FC<CollegeClassesTabProps> = ({ onSelectTab }) => {
   const { showToast } = useToast();
   
   // Tab state
@@ -221,6 +227,28 @@ export const CollegeClassesTab: React.FC = () => {
           <FileText className="w-3.5 h-3.5" />
           <span>Assignments</span>
         </button>
+
+        {onSelectTab && (
+          <>
+            <button
+              onClick={() => onSelectTab('marks')}
+              className="flex-1 min-w-[115px] py-2.5 px-3 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 bg-blue-950/70 border border-blue-800/60 hover:bg-blue-900/60 text-blue-300 hover:text-white shrink-0"
+              title="Track CAE & End Sem Marks"
+            >
+              <BarChart3 className="w-3.5 h-3.5 text-blue-400" />
+              <span>📊 Marks</span>
+            </button>
+
+            <button
+              onClick={() => onSelectTab('calculator')}
+              className="flex-1 min-w-[125px] py-2.5 px-3 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 bg-violet-950/70 border border-violet-800/60 hover:bg-violet-900/60 text-violet-300 hover:text-white shrink-0"
+              title="Calculate & Simulate SGPA/CGPA"
+            >
+              <Award className="w-3.5 h-3.5 text-violet-400" />
+              <span>🧮 SGPA / CGPA</span>
+            </button>
+          </>
+        )}
 
         <button
           onClick={() => setActiveTab('ai_tutor')}

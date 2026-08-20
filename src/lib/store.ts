@@ -504,6 +504,17 @@ export const appStore = {
     });
   },
 
+  async syncMarks() {
+    if (!isSupabaseConfigured) return;
+    return dedupeAsync('syncMarks', async () => {
+      try {
+        notifyListeners();
+      } catch (err) {
+        console.warn('Error syncing marks:', err);
+      }
+    });
+  },
+
   async syncSnaps() {
     if (!isSupabaseConfigured || !this.currentUser) return;
     return dedupeAsync('syncSnaps', async () => {

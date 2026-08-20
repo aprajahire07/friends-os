@@ -13,6 +13,7 @@ const debouncedSyncMemories = debounce(() => appStore.syncMemories(), 200);
 const debouncedSyncNotes = debounce(() => appStore.syncNotes(), 200);
 const debouncedSyncBorrowed = debounce(() => appStore.syncBorrowedItems(), 150);
 const debouncedSyncAttendance = debounce(() => appStore.syncAttendanceAndReports(), 200);
+const debouncedSyncMarks = debounce(() => appStore.syncMarks(), 200);
 const debouncedSyncSnaps = debounce(() => appStore.syncSnaps(), 150);
 const debouncedSyncAppSettings = debounce(() => appStore.syncAppSettings(), 300);
 const debouncedSyncNotifications = debounce(() => appStore.syncNotifications(), 150);
@@ -225,6 +226,28 @@ function initializeRealtimeChannel() {
         { event: '*', schema: 'public', table: 'class_reports' },
         () => {
           debouncedSyncAttendance();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'student_marks' },
+        () => {
+          debouncedSyncMarks();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'student_academic_profiles' },
+        () => {
+          debouncedSyncMarks();
+          debouncedSyncProfiles();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'semester_results' },
+        () => {
+          debouncedSyncMarks();
         }
       )
       .on(

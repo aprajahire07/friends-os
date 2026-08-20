@@ -16,7 +16,9 @@ import {
   Download,
   Smartphone,
   Sparkles,
-  Bot
+  Bot,
+  BarChart3,
+  Calculator
 } from 'lucide-react';
 import { appStore, useAppStore } from '../../lib/store';
 import { isUserAdmin } from '../../services/appSettings';
@@ -58,6 +60,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'expenses', label: 'Money', icon: Wallet, badge: pendingLoansCount > 0 ? pendingLoansCount : null },
     { id: 'plans', label: 'Plans', icon: CalendarDays, badge: null },
     { id: 'snaps', label: 'Snaps', icon: Camera, badge: unopenedSnapsCount > 0 ? unopenedSnapsCount : null },
+    { id: 'marks', label: '📊 Marks', icon: BarChart3, badge: null },
+    { id: 'calculator', label: '🧮 SGPA / CGPA', icon: Calculator, badge: null },
     { id: 'college', label: 'College & Attendance', icon: GraduationCap, badge: null },
     { id: 'ai', label: 'AI 🤖', icon: Sparkles, badge: null },
     { id: 'memories', label: 'Memories', icon: Images, badge: null },

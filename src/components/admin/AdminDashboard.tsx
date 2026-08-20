@@ -19,13 +19,14 @@ import { MoneyHistoryView } from './MoneyHistoryView';
 import { PasswordManagementView } from './PasswordManagementView';
 import { SystemOverviewView } from './SystemOverviewView';
 import { AdminNotesManagementView } from './AdminNotesManagementView';
+import { AdminMarksManagementView } from './AdminMarksManagementView';
 import { FRIEND_OS_ADMIN_EMAIL } from '../../services/appSettings';
 
 interface AdminDashboardProps {
   onBackToHome?: () => void;
 }
 
-type AdminTab = 'users' | 'notes' | 'memories' | 'money' | 'passwords' | 'overview';
+type AdminTab = 'users' | 'marks' | 'notes' | 'memories' | 'money' | 'passwords' | 'overview';
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToHome }) => {
   useAppStore();
@@ -62,11 +63,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToHome }) 
 
   const tabs = [
     { id: 'users' as AdminTab, label: 'User Management', icon: Users },
+    { id: 'marks' as AdminTab, label: 'Marks & SGPA Master', icon: BarChart3 },
     { id: 'notes' as AdminTab, label: 'Notes Master Access', icon: FileText },
     { id: 'memories' as AdminTab, label: 'Memories Security', icon: Lock },
     { id: 'money' as AdminTab, label: 'Money History', icon: Wallet },
     { id: 'passwords' as AdminTab, label: 'Password Management', icon: KeyRound },
-    { id: 'overview' as AdminTab, label: 'System Overview & Logs', icon: BarChart3 },
+    { id: 'overview' as AdminTab, label: 'System Overview & Logs', icon: Sparkles },
   ];
 
   return (
@@ -92,7 +94,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToHome }) 
               <span>⚙️ Admin Control Center</span>
             </h2>
             <p className="text-xs text-slate-300">
-              Manage accounts, oversee group study notes with Master Access, enforce memories lock, and review FRIEND OS audit logs.
+              Manage accounts, oversee student examination marks, study notes with Master Access, enforce memories lock, and review FRIEND OS audit logs.
             </p>
           </div>
 
@@ -133,6 +135,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToHome }) 
       {/* Main Tab Content View */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl">
         {activeAdminTab === 'users' && <UserManagementView />}
+        {activeAdminTab === 'marks' && <AdminMarksManagementView />}
         {activeAdminTab === 'notes' && <AdminNotesManagementView />}
         {activeAdminTab === 'memories' && <MemoriesSecurityView />}
         {activeAdminTab === 'money' && <MoneyHistoryView />}

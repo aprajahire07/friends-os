@@ -90,9 +90,9 @@ const SYSTEM_INSTRUCTION =
 
 // Prioritize ultra-fast low-latency models first
 const GEMINI_CANDIDATE_MODELS = [
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
   'gemini-flash-latest',
-  'gemini-3.7-flash',
-  'gemini-3.1-flash-lite',
 ];
 
 async function startServer() {

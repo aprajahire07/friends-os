@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Camera, Wallet, CalendarDays, Images, Backpack, FileText } from 'lucide-react';
+import { X, Camera, Wallet, CalendarDays, Images, Backpack, FileText, BarChart3, Calculator } from 'lucide-react';
 
 interface CreateActionSheetProps {
   isOpen: boolean;
@@ -10,6 +10,8 @@ interface CreateActionSheetProps {
   onOpenAddMemory: () => void;
   onOpenAddBorrowed: () => void;
   onOpenAddNote?: () => void;
+  onOpenMarks?: () => void;
+  onOpenCalculator?: () => void;
 }
 
 export const CreateActionSheet: React.FC<CreateActionSheetProps> = ({
@@ -21,6 +23,8 @@ export const CreateActionSheet: React.FC<CreateActionSheetProps> = ({
   onOpenAddMemory,
   onOpenAddBorrowed,
   onOpenAddNote,
+  onOpenMarks,
+  onOpenCalculator,
 }) => {
   if (!isOpen) return null;
 
@@ -38,6 +42,20 @@ export const CreateActionSheet: React.FC<CreateActionSheetProps> = ({
       icon: Wallet,
       color: 'from-emerald-500 to-teal-600 text-white',
       action: onOpenAddMoney,
+    },
+    {
+      title: 'Track Academic Marks',
+      subtitle: 'Record CAE 1, CAE 2, and End Sem scores',
+      icon: BarChart3,
+      color: 'from-blue-500 to-indigo-600 text-white',
+      action: onOpenMarks || (() => {}),
+    },
+    {
+      title: 'Calculate SGPA / CGPA',
+      subtitle: 'Simulate grades and estimate GPA',
+      icon: Calculator,
+      color: 'from-violet-500 to-purple-600 text-white',
+      action: onOpenCalculator || (() => {}),
     },
     {
       title: 'Make a Plan',

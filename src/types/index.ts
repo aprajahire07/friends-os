@@ -387,8 +387,86 @@ export type NavigationTab =
   | 'dates'
   | 'college'
   | 'attendance'
+  | 'marks'
+  | 'calculator'
   | 'ai'
   | 'notifications'
   | 'profile'
   | 'me'
   | 'admin';
+
+export type ExamType = 'CAE1' | 'CAE2' | 'END_SEM';
+
+export interface SubjectCurriculumItem {
+  code: string;
+  name: string;
+  credits: number;
+  max_cae1: number;
+  max_cae2: number;
+  max_end_sem: number;
+  category?: 'Theory' | 'Practical' | 'Elective' | 'Project' | 'Other';
+}
+
+export interface StudentAcademicProfile {
+  id?: string;
+  user_id: string;
+  college_id: string;
+  current_semester: number;
+  is_marks_password_protected: boolean;
+  marks_password_hash?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  profile?: Profile;
+}
+
+export interface StudentMark {
+  id?: string;
+  user_id: string;
+  semester: number;
+  subject_code: string;
+  subject_name: string;
+  credits: number;
+  exam_type: ExamType;
+  marks: number | null;
+  max_marks: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface SubjectMarkSummary {
+  subject_code: string;
+  subject_name: string;
+  credits: number;
+  cae1: number | null;
+  max_cae1: number;
+  cae2: number | null;
+  max_cae2: number;
+  end_sem: number | null;
+  max_end_sem: number;
+  total_obtained: number | null;
+  total_max: number;
+  percentage: number | null;
+  grade: string;
+  grade_point: number | null;
+  is_complete: boolean;
+}
+
+export interface SemesterResult {
+  id?: string;
+  user_id: string;
+  semester: number;
+  sgpa: number;
+  total_credits: number;
+  total_grade_points: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface GradeScaleRule {
+  grade: string;
+  grade_point: number;
+  min_percentage: number;
+  max_percentage: number;
+  description: string;
+}
+

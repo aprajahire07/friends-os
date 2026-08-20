@@ -554,9 +554,9 @@ const SYSTEM_INSTRUCTION =
   'You are FRIEND OS AI, a fast, friendly, and highly capable study buddy & academic tutor in Friend OS. Respond concisely, accurately, and immediately. Support English, Hindi, Hinglish, and regional languages. Format solutions with clean Markdown headers, bold key points, and concise code blocks. Deliver answers quickly without unnecessary fluff.';
 
 const GEMINI_CANDIDATE_MODELS = [
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
   'gemini-flash-latest',
-  'gemini-3.7-flash',
-  'gemini-3.1-flash-lite',
 ];
 
 /**

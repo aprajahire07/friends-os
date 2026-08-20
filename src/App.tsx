@@ -13,6 +13,8 @@ import { BorrowedTracker } from './components/borrowed/BorrowedTracker';
 import { CollegeClassesTab } from './components/college/CollegeClassesTab';
 import { NotesList } from './components/notes/NotesList';
 import { UploadNoteModal } from './components/notes/UploadNoteModal';
+import { MarksTab } from './components/marks/MarksTab';
+import { SgpaCgpaCalculatorTab } from './components/calculator/SgpaCgpaCalculatorTab';
 import { FriendOSAiTab } from './components/ai/FriendOSAiTab';
 import { MeTab } from './components/profile/MeTab';
 import { PaymentQRModal } from './components/expenses/PaymentQRModal';
@@ -155,6 +157,10 @@ export function AppContent() {
   const [preselectedFriend, setPreselectedFriend] = useState<Profile | null>(null);
   const [friendProfile, setFriendProfile] = useState<Profile | null>(null);
   const [activeChatFriendId, setActiveChatFriendId] = useState<string | null>(null);
+  const [calculatorTarget, setCalculatorTarget] = useState<{ studentId: string | null; semester: number }>({
+    studentId: null,
+    semester: 3
+  });
 
   const handleOpenFriendProfile = (friend: Profile) => {
     setFriendProfile(friend);
@@ -182,6 +188,11 @@ export function AppContent() {
   const handleOpenBorrowForFriend = (friend: Profile) => {
     setPreselectedFriend(friend);
     setShowAddBorrowedModal(true);
+  };
+
+  const handleOpenCalculatorWithStudent = (userId: string, semester: number) => {
+    setCalculatorTarget({ studentId: userId, semester });
+    setActiveTab('calculator');
   };
 
   // 1. Loading screen while verifying Supabase session
@@ -295,11 +306,28 @@ export function AppContent() {
 
             {activeTab === 'snaps' && <SnapsFeed />}
 
+            {activeTab === 'marks' && (
+              <MarksTab 
+                onSelectTab={setActiveTab}
+                onOpenCalculatorWithStudent={handleOpenCalculatorWithStudent}
+              />
+            )}
+
+            {activeTab === 'calculator' && (
+              <SgpaCgpaCalculatorTab 
+                initialStudentId={calculatorTarget.studentId}
+                initialSemester={calculatorTarget.semester}
+                onSelectTab={setActiveTab}
+              />
+            )}
+
             {activeTab === 'memories' && <MemoryGallery />}
 
             {activeTab === 'borrowed' && <BorrowedTracker />}
 
-            {activeTab === 'college' && <CollegeClassesTab />}
+            {activeTab === 'college' && (
+              <CollegeClassesTab onSelectTab={setActiveTab} />
+            )}
 
             {activeTab === 'notes' && <NotesList />}
 
@@ -328,6 +356,8 @@ export function AppContent() {
           setShowSnapModal(true);
         }}
         onOpenAddMoney={() => setShowAddMoneyModal(true)}
+        onOpenMarks={() => setActiveTab('marks')}
+        onOpenCalculator={() => setActiveTab('calculator')}
         onOpenCreatePlan={() => setShowCreatePlanModal(true)}
         onOpenAddMemory={() => setShowAddMemoryModal(true)}
         onOpenAddBorrowed={() => setShowAddBorrowedModal(true)}

@@ -11,7 +11,10 @@ import {
   Images,
   ArrowUpRight,
   FileText,
-  Zap
+  Zap,
+  BarChart3,
+  Calculator,
+  Backpack
 } from 'lucide-react';
 import { appStore, useAppStore } from '../../lib/store';
 import { NavigationTab } from '../../types';
@@ -34,6 +37,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
   onOpenAddMoney,
   onOpenCreatePlan,
   onOpenAddMemory,
+  onOpenAddBorrowed,
   onOpenAddNote,
 }) => {
   const store = useAppStore();
@@ -253,79 +257,115 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
           </h3>
         </div>
 
-        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2.5">
+        <div className="grid grid-cols-3 gap-2.5 sm:gap-3">
           {/* Quick Snap */}
           <button
             type="button"
             onClick={onOpenSendSnap}
-            className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-amber-500/50 hover:bg-slate-800/60 flex flex-col items-center justify-center gap-1.5 text-slate-100 transition-all active:scale-95 group shadow-lg"
+            className="p-3 rounded-2xl bg-slate-900 border border-slate-800 hover:border-amber-500/50 hover:bg-slate-800/60 flex flex-col items-center justify-center gap-1.5 text-slate-100 transition-all active:scale-95 group shadow-lg"
           >
-            <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-400 group-hover:scale-110 transition-transform flex items-center justify-center">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-400 group-hover:scale-110 transition-transform flex items-center justify-center">
               <Camera className="w-5 h-5" />
             </div>
-            <span className="text-xs font-bold">Snap</span>
+            <span className="text-[11px] font-bold">Snap</span>
           </button>
 
           {/* Quick Money / Split */}
           <button
             type="button"
             onClick={onOpenAddMoney}
-            className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-emerald-500/50 hover:bg-slate-800/60 flex flex-col items-center justify-center gap-1.5 text-slate-100 transition-all active:scale-95 group shadow-lg"
+            className="p-3 rounded-2xl bg-slate-900 border border-slate-800 hover:border-emerald-500/50 hover:bg-slate-800/60 flex flex-col items-center justify-center gap-1.5 text-slate-100 transition-all active:scale-95 group shadow-lg"
           >
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 group-hover:scale-110 transition-transform flex items-center justify-center">
+            <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 group-hover:scale-110 transition-transform flex items-center justify-center">
               <Wallet className="w-5 h-5" />
             </div>
-            <span className="text-xs font-bold">Money</span>
-          </button>
-
-          {/* Quick Plan */}
-          <button
-            type="button"
-            onClick={onOpenCreatePlan}
-            className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-indigo-500/50 hover:bg-slate-800/60 flex flex-col items-center justify-center gap-1.5 text-slate-100 transition-all active:scale-95 group shadow-lg"
-          >
-            <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-400 group-hover:scale-110 transition-transform flex items-center justify-center">
-              <CalendarDays className="w-5 h-5" />
-            </div>
-            <span className="text-xs font-bold">Plan</span>
+            <span className="text-[11px] font-bold">Money</span>
           </button>
 
           {/* Quick Memory */}
           <button
             type="button"
             onClick={() => onSelectTab('memories')}
-            className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-pink-500/50 hover:bg-slate-800/60 flex flex-col items-center justify-center gap-1.5 text-slate-100 transition-all active:scale-95 group shadow-lg"
+            className="p-3 rounded-2xl bg-slate-900 border border-slate-800 hover:border-pink-500/50 hover:bg-slate-800/60 flex flex-col items-center justify-center gap-1.5 text-slate-100 transition-all active:scale-95 group shadow-lg"
           >
-            <div className="w-10 h-10 rounded-xl bg-pink-500/10 text-pink-400 group-hover:scale-110 transition-transform flex items-center justify-center">
+            <div className="w-9 h-9 rounded-xl bg-pink-500/10 text-pink-400 group-hover:scale-110 transition-transform flex items-center justify-center">
               <Images className="w-5 h-5" />
             </div>
-            <span className="text-xs font-bold">Memories</span>
+            <span className="text-[11px] font-bold">Memories</span>
           </button>
 
           {/* Quick Note */}
           <button
             type="button"
             onClick={() => onSelectTab('notes')}
-            className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-amber-500/50 hover:bg-slate-800/60 flex flex-col items-center justify-center gap-1.5 text-slate-100 transition-all active:scale-95 group shadow-lg"
+            className="p-3 rounded-2xl bg-slate-900 border border-slate-800 hover:border-amber-500/50 hover:bg-slate-800/60 flex flex-col items-center justify-center gap-1.5 text-slate-100 transition-all active:scale-95 group shadow-lg"
           >
-            <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-400 group-hover:scale-110 transition-transform flex items-center justify-center">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-400 group-hover:scale-110 transition-transform flex items-center justify-center">
               <FileText className="w-5 h-5" />
             </div>
-            <span className="text-xs font-bold">Notes</span>
+            <span className="text-[11px] font-bold">Notes</span>
+          </button>
+
+          {/* Quick Plan */}
+          <button
+            type="button"
+            onClick={onOpenCreatePlan}
+            className="p-3 rounded-2xl bg-slate-900 border border-slate-800 hover:border-indigo-500/50 hover:bg-slate-800/60 flex flex-col items-center justify-center gap-1.5 text-slate-100 transition-all active:scale-95 group shadow-lg"
+          >
+            <div className="w-9 h-9 rounded-xl bg-indigo-500/10 text-indigo-400 group-hover:scale-110 transition-transform flex items-center justify-center">
+              <CalendarDays className="w-5 h-5" />
+            </div>
+            <span className="text-[11px] font-bold">Plan</span>
           </button>
 
           {/* Quick AI */}
           <button
             type="button"
             onClick={() => onSelectTab('ai')}
-            className="p-3.5 rounded-2xl bg-gradient-to-b from-indigo-950/70 to-slate-900 border border-indigo-500/40 hover:border-indigo-400 flex flex-col items-center justify-center gap-1.5 text-slate-100 transition-all active:scale-95 group shadow-lg"
+            className="p-3 rounded-2xl bg-gradient-to-b from-indigo-950/70 to-slate-900 border border-indigo-500/40 hover:border-indigo-400 flex flex-col items-center justify-center gap-1.5 text-slate-100 transition-all active:scale-95 group shadow-lg"
           >
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-400 text-white group-hover:scale-110 transition-transform flex items-center justify-center shadow-md shadow-indigo-600/30">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-400 text-white group-hover:scale-110 transition-transform flex items-center justify-center shadow-md shadow-indigo-600/30">
               <Sparkles className="w-5 h-5" />
             </div>
-            <span className="text-xs font-bold bg-gradient-to-r from-cyan-300 to-indigo-300 bg-clip-text text-transparent">
-              Gemini AI
+            <span className="text-[11px] font-bold bg-gradient-to-r from-cyan-300 to-indigo-300 bg-clip-text text-transparent">
+              AI
             </span>
+          </button>
+
+          {/* Quick Marks */}
+          <button
+            type="button"
+            onClick={() => onSelectTab('marks')}
+            className="p-3 rounded-2xl bg-slate-900 border border-blue-900/60 hover:border-blue-500/80 hover:bg-slate-800/60 flex flex-col items-center justify-center gap-1.5 text-slate-100 transition-all active:scale-95 group shadow-lg"
+          >
+            <div className="w-9 h-9 rounded-xl bg-blue-500/15 text-blue-400 group-hover:scale-110 transition-transform flex items-center justify-center">
+              <BarChart3 className="w-5 h-5" />
+            </div>
+            <span className="text-[11px] font-bold text-blue-200">Marks</span>
+          </button>
+
+          {/* Quick Calculator */}
+          <button
+            type="button"
+            onClick={() => onSelectTab('calculator')}
+            className="p-3 rounded-2xl bg-slate-900 border border-violet-900/60 hover:border-violet-500/80 hover:bg-slate-800/60 flex flex-col items-center justify-center gap-1.5 text-slate-100 transition-all active:scale-95 group shadow-lg"
+          >
+            <div className="w-9 h-9 rounded-xl bg-violet-500/15 text-violet-400 group-hover:scale-110 transition-transform flex items-center justify-center">
+              <Calculator className="w-5 h-5" />
+            </div>
+            <span className="text-[11px] font-bold text-violet-200">SGPA</span>
+          </button>
+
+          {/* Quick Borrowed */}
+          <button
+            type="button"
+            onClick={() => onSelectTab('borrowed')}
+            className="p-3 rounded-2xl bg-slate-900 border border-purple-900/60 hover:border-purple-500/80 hover:bg-slate-800/60 flex flex-col items-center justify-center gap-1.5 text-slate-100 transition-all active:scale-95 group shadow-lg"
+          >
+            <div className="w-9 h-9 rounded-xl bg-purple-500/15 text-purple-400 group-hover:scale-110 transition-transform flex items-center justify-center">
+              <Backpack className="w-5 h-5" />
+            </div>
+            <span className="text-[11px] font-bold text-purple-200">Borrowed</span>
           </button>
         </div>
       </div>

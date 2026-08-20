@@ -1,5 +1,15 @@
 import React, { useState } from 'react';
-import { Users, ChevronDown, LogOut, User, Settings, Sparkles, ShieldCheck, Download, Smartphone } from 'lucide-react';
+import { 
+  Users, 
+  ChevronDown, 
+  LogOut, 
+  User, 
+  Settings, 
+  Sparkles, 
+  ShieldCheck, 
+  Download, 
+  Smartphone
+} from 'lucide-react';
 import { appStore, useAppStore } from '../../lib/store';
 import { useToast } from '../ui/Toast';
 import { StatusPicker } from '../friends/StatusPicker';
@@ -37,10 +47,10 @@ export const Navbar: React.FC<NavbarProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-40 bg-slate-950/80 backdrop-blur-xl border-b border-slate-800/80 px-4 py-3">
-      <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+    <header className="sticky top-0 z-40 bg-slate-950/90 backdrop-blur-xl border-b border-slate-800/80 px-3 sm:px-4 py-2.5">
+      <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 sm:gap-4">
         {/* App Branding */}
-        <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => setActiveTab('home')}>
+        <div className="flex items-center gap-2.5 cursor-pointer shrink-0" onClick={() => setActiveTab('home')}>
           <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-500 via-violet-600 to-pink-500 flex items-center justify-center text-white shadow-md shadow-indigo-500/30">
             <Sparkles className="w-4 h-4" />
           </div>
@@ -50,24 +60,24 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span>Friend OS</span>
               <span className="text-xs">👋</span>
             </h1>
-            <p className="text-[10px] text-slate-400 font-medium">
+            <p className="text-[10px] text-slate-400 font-medium hidden sm:block">
               {currentUser.college || 'College Friend Group'}
             </p>
           </div>
         </div>
 
-        {/* Live Status Control in Navbar */}
+        {/* Live Status Control in Navbar (Desktop) */}
         <div className="hidden sm:flex items-center gap-2">
           <StatusPicker />
         </div>
 
         {/* Right Action Items */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {/* Quick Install Button if eligible */}
           {!isStandalone && onOpenInstallPWA && (
             <button
               onClick={onOpenInstallPWA}
-              className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-950/80 border border-indigo-700/60 hover:bg-indigo-900 text-indigo-300 hover:text-white text-xs font-bold transition-all shadow-sm"
+              className="hidden xl:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-950/80 border border-indigo-700/60 hover:bg-indigo-900 text-indigo-300 hover:text-white text-xs font-bold transition-all shadow-sm"
               title="Install Friend OS PWA"
             >
               <Download className="w-3.5 h-3.5 text-indigo-400" />
@@ -79,7 +89,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="relative">
             <button
               onClick={() => setShowUserDropdown(!showUserDropdown)}
-              className="flex items-center gap-2 p-1.5 pr-2.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 transition-all text-xs text-white"
+              className="flex items-center gap-2 p-1.5 pr-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 transition-all text-xs text-white"
             >
               <Avatar
                 profile={currentUser}
@@ -97,7 +107,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* User Account Menu */}
             {showUserDropdown && (
-              <div className="absolute right-0 mt-2 w-60 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-2 z-50 text-xs animate-in fade-in zoom-in-95 duration-150">
+              <div className="absolute right-0 mt-2 w-64 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-2 z-50 text-xs animate-in fade-in zoom-in-95 duration-150">
                 <div className="px-3 py-2 border-b border-slate-800/80 mb-1 flex items-center gap-2.5">
                   <Avatar
                     profile={currentUser}
