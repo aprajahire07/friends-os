@@ -1187,5 +1187,148 @@ CREATE POLICY "Users can only manage their own AI messages"
 CREATE INDEX IF NOT EXISTS idx_ai_conversations_user_id ON public.ai_conversations(user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ai_messages_conversation_id ON public.ai_messages(conversation_id, created_at ASC);
 
+-- 16. STUDENT ACADEMIC PROFILES & EXAMINATION MARKS DATABASE
+CREATE TABLE IF NOT EXISTS public.student_academic_profiles (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  college_id TEXT DEFAULT 'GHRCE_SEM3_SECTION_A',
+  current_semester INT DEFAULT 3,
+  is_marks_password_protected BOOLEAN DEFAULT FALSE,
+  marks_password_hash TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT unique_academic_user UNIQUE (user_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.student_marks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  semester INT NOT NULL,
+  subject_code TEXT NOT NULL,
+  subject_name TEXT NOT NULL,
+  credits NUMERIC(4,2) DEFAULT 3.0,
+  exam_type TEXT NOT NULL CHECK (exam_type IN ('CAE1', 'CAE2', 'END_SEM')),
+  marks NUMERIC(6,2),
+  max_marks NUMERIC(6,2) NOT NULL DEFAULT 100,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT unique_student_mark UNIQUE (user_id, semester, subject_code, exam_type)
+);
+
+CREATE TABLE IF NOT EXISTS public.semester_results (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  semester INT NOT NULL,
+  sgpa NUMERIC(4,2) DEFAULT 0.0,
+  total_credits NUMERIC(5,2) DEFAULT 0,
+  total_grade_points NUMERIC(6,2) DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT unique_user_semester UNIQUE (user_id, semester)
+);
+
+-- RLS for Academic Profiles, Student Marks, and Semester Results
+ALTER TABLE public.student_academic_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.student_marks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.semester_results ENABLE ROW LEVEL SECURITY;
+
+-- Academic Profiles RLS
+DROP POLICY IF EXISTS "Public Read Academic Profiles" ON public.student_academic_profiles;
+CREATE POLICY "Public Read Academic Profiles" ON public.student_academic_profiles
+  FOR SELECT USING (auth.role() = 'authenticated' OR true);
+
+DROP POLICY IF EXISTS "Auth Manage Academic Profiles" ON public.student_academic_profiles;
+CREATE POLICY "Auth Manage Academic Profiles" ON public.student_academic_profiles
+  FOR ALL USING (
+    auth.uid() = user_id OR 
+    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND (role = 'admin' OR email = 'aprajahire07@gmail.com'))
+  )
+  WITH CHECK (
+    auth.uid() = user_id OR 
+    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND (role = 'admin' OR email = 'aprajahire07@gmail.com'))
+  );
+
+-- Student Marks RLS
+DROP POLICY IF EXISTS "Read Student Marks" ON public.student_marks;
+CREATE POLICY "Read Student Marks" ON public.student_marks
+  FOR SELECT USING (auth.role() = 'authenticated' OR true);
+
+DROP POLICY IF EXISTS "Auth Manage Student Marks" ON public.student_marks;
+CREATE POLICY "Auth Manage Student Marks" ON public.student_marks
+  FOR ALL USING (
+    auth.uid() = user_id OR 
+    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND (role = 'admin' OR email = 'aprajahire07@gmail.com'))
+  )
+  WITH CHECK (
+    auth.uid() = user_id OR 
+    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND (role = 'admin' OR email = 'aprajahire07@gmail.com'))
+  );
+
+-- Semester Results RLS
+DROP POLICY IF EXISTS "Read Semester Results" ON public.semester_results;
+CREATE POLICY "Read Semester Results" ON public.semester_results
+  FOR SELECT USING (auth.role() = 'authenticated' OR true);
+
+DROP POLICY IF EXISTS "Auth Manage Semester Results" ON public.semester_results;
+CREATE POLICY "Auth Manage Semester Results" ON public.semester_results
+  FOR ALL USING (
+    auth.uid() = user_id OR 
+    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND (role = 'admin' OR email = 'aprajahire07@gmail.com'))
+  )
+  WITH CHECK (
+    auth.uid() = user_id OR 
+    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND (role = 'admin' OR email = 'aprajahire07@gmail.com'))
+  );
+
+-- Secure RPC function to verify student marks privacy password
+CREATE OR REPLACE FUNCTION public.verify_student_marks_password(
+  p_target_user_id UUID,
+  p_password_hash TEXT
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_stored_hash TEXT;
+  v_is_protected BOOLEAN;
+  v_caller_role TEXT;
+  v_caller_email TEXT;
+BEGIN
+  -- Admin & Owner bypass
+  SELECT role, email INTO v_caller_role, v_caller_email
+  FROM public.profiles
+  WHERE id = auth.uid();
+
+  IF v_caller_role = 'admin' OR v_caller_email = 'aprajahire07@gmail.com' OR auth.uid() = p_target_user_id THEN
+    RETURN TRUE;
+  END IF;
+
+  SELECT marks_password_hash, is_marks_password_protected
+  INTO v_stored_hash, v_is_protected
+  FROM public.student_academic_profiles
+  WHERE user_id = p_target_user_id;
+
+  IF NOT FOUND OR NOT COALESCE(v_is_protected, false) THEN
+    RETURN TRUE;
+  END IF;
+
+  RETURN (LOWER(TRIM(p_password_hash)) = LOWER(TRIM(v_stored_hash)));
+END;
+$$;
+
+-- Grant execution
+GRANT EXECUTE ON FUNCTION public.verify_student_marks_password(UUID, TEXT) TO authenticated, anon;
+
+-- Realtime subscriptions
+ALTER PUBLICATION supabase_realtime ADD TABLE public.student_academic_profiles;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.student_marks;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.semester_results;
+
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_student_marks_lookup ON public.student_marks(user_id, semester);
+CREATE INDEX IF NOT EXISTS idx_academic_profiles_user ON public.student_academic_profiles(user_id);
+CREATE INDEX IF NOT EXISTS idx_semester_results_lookup ON public.semester_results(user_id, semester);
+
 
 

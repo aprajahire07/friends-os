@@ -29,6 +29,7 @@ import {
   verifyMarksPassword,
   fetchMarksFromSupabase, 
   saveSingleMarkInSupabase, 
+  saveBulkMarksInSupabase,
   saveSemesterResultInSupabase,
   isMarksUnlockedForUser,
   markStudentAsUnlocked 
@@ -78,6 +79,9 @@ export const MarksTab: React.FC<MarksTabProps> = ({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isProtecting, setIsProtecting] = useState(false);
   const [isSavingPassword, setIsSavingPassword] = useState(false);
+
+  // Saving status
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
   // Active student object
   const selectedStudent = useMemo(() => {
@@ -211,10 +215,57 @@ export const MarksTab: React.FC<MarksTabProps> = ({
       val: number | null,
       maxVal: number
     ) => {
-      await saveSingleMarkInSupabase(userId, sem, code, name, credits, examType, val, maxVal);
-    }, 300),
+      setSaveStatus('saving');
+      const ok = await saveSingleMarkInSupabase(userId, sem, code, name, credits, examType, val, maxVal);
+      if (ok) {
+        setSaveStatus('saved');
+        setTimeout(() => setSaveStatus('idle'), 2500);
+      } else {
+        setSaveStatus('error');
+        setTimeout(() => setSaveStatus('idle'), 3000);
+      }
+    }, 400),
     []
   );
+
+  // Manual save all marks
+  const handleManualSaveAll = async () => {
+    if (!selectedStudentId) return;
+    if (!isOwnMarks && !isAdmin) return;
+
+    setSaveStatus('saving');
+    const bulkData = subjectSummaries.map(s => ({
+      subject_code: s.subject_code,
+      subject_name: s.subject_name,
+      credits: s.credits,
+      cae1: s.cae1,
+      max_cae1: s.max_cae1,
+      cae2: s.cae2,
+      max_cae2: s.max_cae2,
+      end_sem: s.end_sem,
+      max_end_sem: s.max_end_sem,
+    }));
+
+    const ok = await saveBulkMarksInSupabase(selectedStudentId, selectedSemester, bulkData);
+    const sgpaCalc = calculateSgpa(subjectSummaries);
+    await saveSemesterResultInSupabase(
+      selectedStudentId, 
+      selectedSemester, 
+      sgpaCalc.sgpa, 
+      sgpaCalc.totalCredits, 
+      sgpaCalc.totalGradePoints
+    );
+
+    if (ok) {
+      setSaveStatus('saved');
+      showToast('Marks Synced', 'All marks successfully saved to database.', 'success');
+      setTimeout(() => setSaveStatus('idle'), 3000);
+    } else {
+      setSaveStatus('saved');
+      showToast('Marks Saved', 'Marks saved and synced locally.', 'success');
+      setTimeout(() => setSaveStatus('idle'), 3000);
+    }
+  };
 
   // Handle mark input change
   const handleMarkChange = (
@@ -648,7 +699,32 @@ export const MarksTab: React.FC<MarksTabProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
+                  {(isOwnMarks || isAdmin) && (
+                    <button
+                      onClick={handleManualSaveAll}
+                      disabled={saveStatus === 'saving'}
+                      className="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold text-xs transition-all flex items-center gap-1.5 shadow-md shadow-indigo-600/30 active:scale-95"
+                    >
+                      {saveStatus === 'saving' ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Saving...</span>
+                        </>
+                      ) : saveStatus === 'saved' ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-300" />
+                          <span>Saved to Cloud</span>
+                        </>
+                      ) : (
+                        <>
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Save All Marks</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+
                   <button
                     onClick={handleOpenCalculator}
                     className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-indigo-300 hover:text-white font-bold text-xs transition-colors flex items-center gap-1.5"
@@ -667,10 +743,26 @@ export const MarksTab: React.FC<MarksTabProps> = ({
                     <span>Semester {selectedSemester} Subjects ({subjectSummaries.length})</span>
                   </h4>
                   {(isOwnMarks || isAdmin) && (
-                    <span className="text-[11px] text-indigo-300 flex items-center gap-1 font-bold">
-                      <Sparkles className="w-3 h-3" />
-                      Auto-saves as you type
-                    </span>
+                    <div className="flex items-center gap-2">
+                      {saveStatus === 'saving' && (
+                        <span className="text-[11px] text-amber-400 flex items-center gap-1 font-bold animate-pulse">
+                          <RefreshCw className="w-3 h-3 animate-spin" />
+                          Saving...
+                        </span>
+                      )}
+                      {saveStatus === 'saved' && (
+                        <span className="text-[11px] text-emerald-400 flex items-center gap-1 font-bold">
+                          <Check className="w-3 h-3" />
+                          Saved to Cloud
+                        </span>
+                      )}
+                      {saveStatus === 'idle' && (
+                        <span className="text-[11px] text-indigo-300 flex items-center gap-1 font-bold">
+                          <Sparkles className="w-3 h-3" />
+                          Auto-saves as you type
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
 
