@@ -45,7 +45,7 @@ export const EditNoteModal: React.FC<EditNoteModalProps> = ({ note, isOpen, onCl
   const [isPasswordProtected, setIsPasswordProtected] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [keepExistingPassword, setKeepExistingPassword] = useState(true);
+  const [passwordAction, setPasswordAction] = useState<'keep' | 'change'>('keep');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -56,8 +56,9 @@ export const EditNoteModal: React.FC<EditNoteModalProps> = ({ note, isOpen, onCl
       setCaption(note.caption || '');
       setExistingFiles(note.files || []);
       setNewFiles([]);
-      setIsPasswordProtected(note.is_password_protected || false);
-      setKeepExistingPassword(Boolean(note.is_password_protected));
+      const hasLock = Boolean(note.is_password_protected);
+      setIsPasswordProtected(hasLock);
+      setPasswordAction(hasLock ? 'keep' : 'change');
       setNewPassword('');
       setErrorMsg(null);
     }
@@ -141,8 +142,10 @@ export const EditNoteModal: React.FC<EditNoteModalProps> = ({ note, isOpen, onCl
       return;
     }
 
-    // Password validation
-    if (isPasswordProtected && !keepExistingPassword && (!newPassword || newPassword.trim().length === 0)) {
+    // Password validation logic
+    const willKeepExisting = isPasswordProtected && Boolean(note.is_password_protected) && passwordAction === 'keep' && (!newPassword || newPassword.trim().length === 0);
+
+    if (isPasswordProtected && !willKeepExisting && (!newPassword || newPassword.trim().length === 0)) {
       setErrorMsg('Please enter a password to lock this note.');
       return;
     }
@@ -154,8 +157,8 @@ export const EditNoteModal: React.FC<EditNoteModalProps> = ({ note, isOpen, onCl
         noteId: note.id,
         caption: caption.trim(),
         isPasswordProtected,
-        newPassword: (!keepExistingPassword && isPasswordProtected) ? newPassword.trim() : undefined,
-        keepExistingPassword: isPasswordProtected && keepExistingPassword,
+        newPassword: (isPasswordProtected && !willKeepExisting) ? newPassword.trim() : undefined,
+        keepExistingPassword: willKeepExisting,
         retainedExistingFiles: existingFiles,
         newFiles: newFiles.map(nf => ({ file: nf.file, type: nf.type }))
       });
@@ -365,8 +368,12 @@ export const EditNoteModal: React.FC<EditNoteModalProps> = ({ note, isOpen, onCl
                 onChange={e => {
                   const checked = e.target.checked;
                   setIsPasswordProtected(checked);
-                  if (checked && note.is_password_protected) {
-                    setKeepExistingPassword(true);
+                  if (checked) {
+                    if (note.is_password_protected) {
+                      setPasswordAction('keep');
+                    } else {
+                      setPasswordAction('change');
+                    }
                   }
                 }}
                 disabled={isSubmitting}
@@ -375,42 +382,72 @@ export const EditNoteModal: React.FC<EditNoteModalProps> = ({ note, isOpen, onCl
             </div>
 
             {isPasswordProtected && (
-              <div className="pt-2 border-t border-slate-800/80 space-y-2">
+              <div className="pt-2 border-t border-slate-800/80 space-y-2.5">
                 {note.is_password_protected && (
-                  <div className="flex items-center justify-between text-xs pb-1">
-                    <span className="text-slate-300 text-[11px]">Keep current password?</span>
+                  <div className="grid grid-cols-2 gap-2 p-1 bg-slate-900 rounded-xl border border-slate-800">
                     <button
                       type="button"
-                      onClick={() => setKeepExistingPassword(!keepExistingPassword)}
-                      className={`text-[11px] font-bold px-2 py-0.5 rounded-md transition-colors ${
-                        keepExistingPassword
-                          ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/50'
-                          : 'bg-indigo-950/60 text-indigo-300 border border-indigo-800/50'
+                      onClick={() => setPasswordAction('keep')}
+                      className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-xs font-bold transition-colors ${
+                        passwordAction === 'keep'
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                          : 'text-slate-400 hover:text-slate-200'
                       }`}
                     >
-                      {keepExistingPassword ? '✓ Keeping Current' : 'Change Password'}
+                      <Lock className="w-3.5 h-3.5" />
+                      <span>Keep Current</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPasswordAction('change')}
+                      className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-xs font-bold transition-colors ${
+                        passwordAction === 'change'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <KeyRound className="w-3.5 h-3.5" />
+                      <span>Set New Password</span>
                     </button>
                   </div>
                 )}
 
-                {(!note.is_password_protected || !keepExistingPassword) && (
-                  <div className="relative">
-                    <KeyRound className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      value={newPassword}
-                      onChange={e => setNewPassword(e.target.value)}
-                      placeholder="Enter new password for note..."
-                      disabled={isSubmitting}
-                      className="w-full pl-9 pr-9 py-2 rounded-xl bg-slate-900 border border-slate-800 text-white placeholder-slate-500 text-xs focus:outline-hidden focus:border-amber-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
-                    >
-                      {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                    </button>
+                {(!note.is_password_protected || passwordAction === 'change') && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-semibold text-slate-300">
+                        {note.is_password_protected ? 'New Password for Note' : 'Password for Note'}
+                      </label>
+                      <span className="text-[10px] text-indigo-400">Updates for all users</span>
+                    </div>
+                    <div className="relative">
+                      <KeyRound className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        value={newPassword}
+                        onChange={e => {
+                          setNewPassword(e.target.value);
+                          if (passwordAction !== 'change') setPasswordAction('change');
+                        }}
+                        placeholder="Type new password..."
+                        disabled={isSubmitting}
+                        className="w-full pl-9 pr-9 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white placeholder-slate-500 text-xs focus:outline-hidden focus:border-amber-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                      >
+                        {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {note.is_password_protected && passwordAction === 'keep' && (
+                  <div className="flex items-center gap-2 p-2 rounded-xl bg-amber-950/20 border border-amber-900/30 text-amber-300 text-[11px]">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <span>Existing password remains active. Friends who know the old password can still open it.</span>
                   </div>
                 )}
               </div>
