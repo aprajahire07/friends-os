@@ -254,7 +254,7 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
       <input
         ref={docInputRef}
         type="file"
-        accept="application/pdf,text/*,.txt,.c,.cpp,.h,.java,.py,.js,.jsx,.ts,.tsx,.json,.md,.html,.css,.sql,.doc,.docx,.ppt,.pptx,.zip"
+        accept="*/*"
         className="hidden"
         onChange={e => e.target.files?.[0] && handleSelectFile(e.target.files[0])}
       />

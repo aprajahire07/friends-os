@@ -254,7 +254,7 @@ export const UploadNoteModal: React.FC<UploadNoteModalProps> = ({ isOpen, onClos
               ref={fileInputRef}
               onChange={handleFileSelect}
               multiple
-              accept="image/*,application/pdf,text/*,.txt,.c,.cpp,.h,.java,.py,.js,.jsx,.ts,.tsx,.json,.md,.html,.css,.sql,.doc,.docx,.ppt,.pptx,.zip"
+              accept="*/*"
               className="hidden"
             />
 

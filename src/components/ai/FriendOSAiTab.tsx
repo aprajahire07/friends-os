@@ -954,7 +954,7 @@ export const FriendOSAiTab: React.FC = () => {
             ref={fileInputRef}
             type="file"
             multiple
-            accept="image/*,application/pdf,text/*,.pdf,.doc,.docx,.txt,.c,.cpp,.h,.java,.py,.js,.jsx,.ts,.tsx,.json,.md,.html,.css,.sql,.zip"
+            accept="*/*"
             onChange={handleFileChange}
             className="hidden"
           />
