@@ -15,7 +15,8 @@ import {
   KeyRound, 
   Loader2, 
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Edit3
 } from 'lucide-react';
 import { Note, NoteFile } from '../../types';
 import { appStore, useAppStore } from '../../lib/store';
@@ -27,9 +28,10 @@ interface ViewNoteModalProps {
   note: Note | null;
   onClose: () => void;
   onDeleteNote: (note: Note) => void;
+  onEditNote?: (note: Note) => void;
 }
 
-export const ViewNoteModal: React.FC<ViewNoteModalProps> = ({ note, onClose, onDeleteNote }) => {
+export const ViewNoteModal: React.FC<ViewNoteModalProps> = ({ note, onClose, onDeleteNote, onEditNote }) => {
   const { showToast } = useToast();
   const store = useAppStore();
   const currentUser = store.currentUser;
@@ -149,6 +151,17 @@ export const ViewNoteModal: React.FC<ViewNoteModalProps> = ({ note, onClose, onD
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            {(isOwner || isAdmin) && onEditNote && (
+              <button
+                onClick={() => onEditNote(note)}
+                className="p-2 rounded-xl text-slate-300 hover:text-white bg-indigo-600/30 hover:bg-indigo-600 border border-indigo-500/40 transition-colors flex items-center gap-1.5 px-3 text-xs font-bold"
+                title="Edit Note"
+              >
+                <Edit3 className="w-4 h-4 text-indigo-300" />
+                <span className="hidden sm:inline">Edit</span>
+              </button>
+            )}
+
             {canDelete && (
               <button
                 onClick={() => onDeleteNote(note)}
@@ -256,12 +269,16 @@ export const ViewNoteModal: React.FC<ViewNoteModalProps> = ({ note, onClose, onD
                         </div>
                       )}
                     </div>
-                  ) : (
+                  ) : currentFileUrl ? (
                     <img
-                      src={currentFileUrl || ''}
+                      src={currentFileUrl}
                       alt={currentFile.file_name}
                       className="max-w-full max-h-[54vh] object-contain rounded-lg"
                     />
+                  ) : (
+                    <div className="flex items-center justify-center p-8">
+                      <Loader2 className="w-6 h-6 text-indigo-400 animate-spin" />
+                    </div>
                   )
                 ) : (
                   <p className="text-xs text-slate-500">No files found for this note.</p>
@@ -310,13 +327,13 @@ export const ViewNoteModal: React.FC<ViewNoteModalProps> = ({ note, onClose, onD
                             : 'border-slate-800 opacity-60 hover:opacity-100 bg-slate-950/50'
                         }`}
                       >
-                        {f.file_type === 'pdf' ? (
+                        {f.file_type === 'pdf' || !url ? (
                           <div className="w-10 h-10 rounded-lg bg-rose-950/60 text-rose-400 flex items-center justify-center shrink-0">
                             <FileText className="w-4 h-4" />
                           </div>
                         ) : (
                           <img
-                            src={url || ''}
+                            src={url}
                             alt={f.file_name}
                             className="w-10 h-10 rounded-lg object-cover bg-slate-950 shrink-0"
                           />

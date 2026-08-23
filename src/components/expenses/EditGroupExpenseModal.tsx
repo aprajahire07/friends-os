@@ -3,6 +3,7 @@ import { X, Save, Plus, Trash2, Check, AlertCircle, Users, DollarSign } from 'lu
 import { GroupExpense, ExpenseParticipant, Profile } from '../../types';
 import { appStore } from '../../lib/store';
 import { useToast } from '../ui/Toast';
+import { Avatar } from '../ui/Avatar';
 
 interface EditGroupExpenseModalProps {
   isOpen: boolean;
@@ -305,7 +306,7 @@ export const EditGroupExpenseModal: React.FC<EditGroupExpenseModalProps> = ({
                       >
                         {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
                       </button>
-                      <img src={p.avatar_url} alt="" className="w-6 h-6 rounded-full object-cover" />
+                      <Avatar profile={p} size="xs" />
                       <span className="font-semibold text-white">
                         {p.full_name} {p.id === expense.paid_by && '(Payer)'}
                       </span>

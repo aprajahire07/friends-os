@@ -3,6 +3,7 @@ import { X, Check, Utensils, Car, Bus, Film, Sparkles, User, ArrowRight, Calenda
 import { appStore } from '../../lib/store';
 import { Profile } from '../../types';
 import { useToast } from '../ui/Toast';
+import { Avatar } from '../ui/Avatar';
 
 interface AddMoneyConversationalModalProps {
   isOpen: boolean;
@@ -308,11 +309,7 @@ export const AddMoneyConversationalModal: React.FC<AddMoneyConversationalModalPr
                       }`}
                     >
                       <div className="flex items-center gap-2">
-                        <img
-                          src={currentUser.avatar_url}
-                          alt=""
-                          className="w-6 h-6 rounded-full object-cover border border-emerald-500/40"
-                        />
+                        <Avatar profile={currentUser} size="xs" className="border-emerald-500/40" />
                         <div className="text-left">
                           <div className="flex items-center gap-1.5">
                             <span className="block text-xs font-bold text-white">You ({currentUser.full_name.split(' ')[0]})</span>
@@ -350,7 +347,7 @@ export const AddMoneyConversationalModal: React.FC<AddMoneyConversationalModalPr
                         }`}
                       >
                         <div className="flex items-center gap-2">
-                          <img src={f.avatar_url} alt="" className="w-6 h-6 rounded-full object-cover border border-slate-700" />
+                          <Avatar profile={f} size="xs" />
                           <div className="text-left">
                             <span className="block text-xs font-bold text-white">{f.full_name}</span>
                             <span className="block text-[10px] text-slate-400 font-normal">@{f.username}</span>

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Search, Users, MessageSquare, Wallet, Calendar, Images, Backpack, Cake } from 'lucide-react';
 import { appStore } from '../../lib/store';
 import { NavigationTab } from '../../types';
+import { Avatar } from './Avatar';
 
 interface GlobalSearchModalProps {
   isOpen: boolean;
@@ -74,7 +75,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ isOpen, on
                     onClick={() => handleNavigate('friends')}
                     className="w-full flex items-center gap-3 p-2 rounded-xl bg-slate-950 hover:bg-slate-800 text-left transition-colors"
                   >
-                    <img src={f.avatar_url} alt="" className="w-8 h-8 rounded-full object-cover" />
+                    <Avatar profile={f} size="sm" />
                     <div>
                       <p className="text-xs font-bold text-white">{f.full_name} (@{f.username})</p>
                       <p className="text-[10px] text-slate-400">{f.college} • {f.course_branch}</p>

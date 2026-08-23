@@ -61,7 +61,7 @@ import {
 } from '../services/plans';
 import { fetchMemoriesFromSupabase, addMemoryToSupabase, updateMemoryInSupabase, deleteMemoryFromSupabase } from '../services/memories';
 import { extractYouTubeVideoId, extractAllYouTubeLinks, formatYouTubePayload } from './youtube';
-import { fetchNotesFromSupabase, createNoteInSupabase, deleteNoteFromSupabase, verifyNotePasswordInSupabase } from '../services/notes';
+import { fetchNotesFromSupabase, createNoteInSupabase, updateNoteInSupabase, deleteNoteFromSupabase, verifyNotePasswordInSupabase } from '../services/notes';
 import { fetchBorrowedItemsFromSupabase, addBorrowedItemToSupabase, markItemReturnedInSupabase } from '../services/borrowed';
 import { fetchDateAttendanceFromSupabase, markDateAttendanceInSupabase, fetchClassReportsFromSupabase, reportClassCancellationInSupabase } from '../services/attendance';
 import { fetchSnapsFromSupabase, sendSnapToSupabase, openSnapInSupabase, destroySnapInSupabase } from '../services/snaps';
@@ -2161,6 +2161,52 @@ export const appStore = {
       this.unlockedNoteIds.add(fullNote.id);
       notifyListeners();
       return { success: true, note: fullNote };
+    }
+
+    return res;
+  },
+
+  async updateNote(params: {
+    noteId: string;
+    caption: string;
+    isPasswordProtected: boolean;
+    newPassword?: string;
+    keepExistingPassword?: boolean;
+    retainedExistingFiles: NoteFile[];
+    newFiles: { file: File; type: 'image' | 'pdf' | 'document' | string }[];
+  }): Promise<{ success: boolean; note?: Note; error?: string }> {
+    if (!this.currentUser) return { success: false, error: 'User not authenticated' };
+    const target = this.notes.find(n => n.id === params.noteId);
+
+    if (target) {
+      const isAdmin = isUserAdmin(this.currentUser);
+      const isUploader = target.uploaded_by === this.currentUser.id ||
+                        target.uploader_profile?.id === this.currentUser.id ||
+                        target.uploader_profile?.email?.toLowerCase() === this.currentUser.email?.toLowerCase();
+
+      if (!isUploader && !isAdmin) {
+        return { success: false, error: 'Unauthorized to edit this note.' };
+      }
+    }
+
+    const res = await updateNoteInSupabase({
+      ...params,
+      userId: this.currentUser.id
+    });
+
+    if (res.success && res.note) {
+      const updatedNote: Note = {
+        ...res.note,
+        uploader_profile: res.note.uploader_profile || target?.uploader_profile || this.currentUser
+      };
+
+      this.notes = this.notes.map(n => n.id === updatedNote.id ? updatedNote : n);
+      saveState('notes', this.notes);
+
+      // If user is owner or admin, keep unlocked
+      this.unlockedNoteIds.add(updatedNote.id);
+      notifyListeners();
+      return { success: true, note: updatedNote };
     }
 
     return res;

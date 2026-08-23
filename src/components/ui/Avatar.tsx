@@ -75,9 +75,8 @@ export const Avatar: React.FC<AvatarProps> = ({
   const sizeClass = typeof size === 'number' ? `w-[${size}px] h-[${size}px]` : (sizeClasses[size] || sizeClasses.md);
   const inlineSize = typeof size === 'number' ? { width: size, height: size } : undefined;
 
-  // Level 0: resolvedUrl (if available), Level 1: fallback DiceBear, Level 2: Styled Initials Badge
-  const showInitials = errorCount >= 2 || (!resolvedUrl && !fallbackUrl);
   const currentSrc = errorCount === 0 && resolvedUrl ? resolvedUrl : fallbackUrl;
+  const showInitials = errorCount >= 2 || !currentSrc || typeof currentSrc !== 'string' || !currentSrc.trim();
 
   const initials = getInitials(fullName || uname);
 

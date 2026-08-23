@@ -14,12 +14,14 @@ import {
   Eye,
   AlertTriangle,
   FolderOpen,
-  Filter
+  Filter,
+  Edit3
 } from 'lucide-react';
 import { Note } from '../../types';
 import { useAppStore, appStore } from '../../lib/store';
 import { isUserAdmin } from '../../services/appSettings';
 import { UploadNoteModal } from './UploadNoteModal';
+import { EditNoteModal } from './EditNoteModal';
 import { ViewNoteModal } from './ViewNoteModal';
 import { useToast } from '../ui/Toast';
 
@@ -35,6 +37,7 @@ export const NotesList: React.FC = () => {
   const [filterType, setFilterType] = useState<'all' | 'unlocked' | 'protected' | 'mine'>('all');
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
+  const [noteToEdit, setNoteToEdit] = useState<Note | null>(null);
 
   // Custom in-app delete modal state
   const [noteToDelete, setNoteToDelete] = useState<Note | null>(null);
@@ -254,9 +257,24 @@ export const NotesList: React.FC = () => {
                     </span>
                   )}
 
-                  <div className="ml-auto flex items-center gap-1 text-indigo-400 font-bold group-hover:translate-x-1 transition-transform">
-                    <span>View</span>
-                    <Eye className="w-3.5 h-3.5" />
+                  <div className="ml-auto flex items-center gap-2">
+                    {(isOwner || isAdmin) && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setNoteToEdit(n);
+                        }}
+                        className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-indigo-600/30 transition-colors"
+                        title="Edit Note"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    <div className="flex items-center gap-1 text-indigo-400 font-bold group-hover:translate-x-1 transition-transform">
+                      <span>View</span>
+                      <Eye className="w-3.5 h-3.5" />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -271,11 +289,26 @@ export const NotesList: React.FC = () => {
         onClose={() => setIsUploadOpen(false)}
       />
 
+      {/* Edit Note Modal */}
+      <EditNoteModal
+        note={noteToEdit}
+        isOpen={Boolean(noteToEdit)}
+        onClose={() => setNoteToEdit(null)}
+        onSuccess={(updated) => {
+          if (selectedNote?.id === updated.id) {
+            setSelectedNote(updated);
+          }
+        }}
+      />
+
       {/* View Note Modal */}
       <ViewNoteModal
         note={selectedNote}
         onClose={() => setSelectedNote(null)}
         onDeleteNote={note => setNoteToDelete(note)}
+        onEditNote={note => {
+          setNoteToEdit(note);
+        }}
       />
 
       {/* Custom In-App Delete Confirmation Modal (Iframe Safe) */}

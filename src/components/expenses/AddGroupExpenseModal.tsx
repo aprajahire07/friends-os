@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { X, Wallet, Users, Check, AlertCircle } from 'lucide-react';
 import { appStore } from '../../lib/store';
 import { useToast } from '../ui/Toast';
+import { Avatar } from '../ui/Avatar';
 
 interface AddGroupExpenseModalProps {
   isOpen: boolean;
@@ -244,7 +245,7 @@ export const AddGroupExpenseModal: React.FC<AddGroupExpenseModalProps> = ({ isOp
                       }`}>
                         {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
                       </div>
-                      <img src={p.avatar_url} alt="" className="w-5 h-5 rounded-full object-cover shrink-0" />
+                      <Avatar profile={p} size="xs" />
                       <span className="truncate text-white font-medium">{p.full_name.split(' ')[0]}</span>
                     </button>
 

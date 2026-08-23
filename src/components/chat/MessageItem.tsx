@@ -101,7 +101,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, currentUser, 
                     </span>
                     <ExternalLink className="w-3.5 h-3.5 shrink-0 text-slate-400" />
                   </a>
-                ) : (
+                ) : resolvedMediaUrl ? (
                   <div className="relative group/img cursor-pointer" onClick={() => setShowFullImage(true)}>
                     <img
                       src={resolvedMediaUrl}
@@ -109,7 +109,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, currentUser, 
                       className="max-h-60 rounded-xl object-cover border border-slate-700/50 hover:opacity-95 transition-opacity"
                     />
                   </div>
-                )}
+                ) : null}
               </div>
             )}
 

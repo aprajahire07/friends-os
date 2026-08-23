@@ -279,6 +279,142 @@ export async function getAuthorizedNoteFileUrl(storagePath: string, expiresIn = 
 }
 
 /**
+ * Update an existing Note in Supabase.
+ * Supports updating caption, modifying password, deleting discarded files, and uploading new files.
+ */
+export async function updateNoteInSupabase(params: {
+  noteId: string;
+  caption: string;
+  isPasswordProtected: boolean;
+  newPassword?: string;
+  keepExistingPassword?: boolean;
+  retainedExistingFiles: NoteFile[];
+  newFiles: { file: File; type: 'image' | 'pdf' | 'document' | string }[];
+  userId: string;
+}): Promise<{ success: boolean; note?: Note; error?: string }> {
+  if (!isSupabaseConfigured || !supabase) {
+    return { success: false, error: 'Supabase is not configured' };
+  }
+
+  const {
+    noteId,
+    caption,
+    isPasswordProtected,
+    newPassword,
+    keepExistingPassword,
+    retainedExistingFiles,
+    newFiles,
+    userId
+  } = params;
+
+  try {
+    // 1. Fetch current note to check existing password hash and current files
+    const { data: currentNoteData, error: currentNoteErr } = await supabase
+      .from('notes')
+      .select('*, note_files(*)')
+      .eq('id', noteId)
+      .single();
+
+    if (currentNoteErr || !currentNoteData) {
+      return { success: false, error: 'Note not found in database.' };
+    }
+
+    let passwordHash: string | null = null;
+    if (isPasswordProtected) {
+      if (keepExistingPassword && currentNoteData.password_hash) {
+        passwordHash = currentNoteData.password_hash;
+      } else if (newPassword && newPassword.trim().length > 0) {
+        passwordHash = await hashNotePassword(newPassword.trim());
+      } else {
+        passwordHash = currentNoteData.password_hash || null;
+      }
+    }
+
+    // 2. Identify and remove discarded files
+    const retainedIds = new Set(retainedExistingFiles.map(f => f.id));
+    const currentFiles: NoteFile[] = currentNoteData.note_files || [];
+    const filesToDelete = currentFiles.filter(f => !retainedIds.has(f.id));
+
+    for (const f of filesToDelete) {
+      if (f.storage_path) {
+        await deleteUniversalStorageFile(f.storage_path, 'notes');
+      }
+      await supabase.from('note_files').delete().eq('id', f.id);
+    }
+
+    // 3. Upload any new files
+    const newlyUploadedFiles: NoteFile[] = [];
+    for (let i = 0; i < newFiles.length; i++) {
+      const { file, type } = newFiles[i];
+      const fileId = crypto.randomUUID();
+
+      const uploadResult = await uploadFileWithBucketRotation('notes', file, userId);
+
+      if (!uploadResult.storagePath) {
+        throw new Error(uploadResult.error || `Failed to upload ${file.name}`);
+      }
+
+      const newFileObj: NoteFile = {
+        id: fileId,
+        note_id: noteId,
+        storage_path: uploadResult.storagePath,
+        file_name: file.name,
+        file_type: type,
+        file_size: file.size,
+        display_order: retainedExistingFiles.length + i + 1,
+        created_at: new Date().toISOString()
+      };
+
+      newlyUploadedFiles.push(newFileObj);
+
+      // Insert DB record for this file
+      await supabase.from('note_files').insert({
+        id: newFileObj.id,
+        note_id: noteId,
+        storage_path: newFileObj.storage_path,
+        file_name: newFileObj.file_name,
+        file_type: newFileObj.file_type === 'image' ? 'image' : 'pdf',
+        file_size: newFileObj.file_size,
+        display_order: newFileObj.display_order,
+        created_at: newFileObj.created_at
+      });
+    }
+
+    // 4. Update parent note record
+    const updatedPayload = {
+      caption,
+      is_password_protected: isPasswordProtected,
+      password_hash: passwordHash,
+      updated_at: new Date().toISOString()
+    };
+
+    const { data: updatedNoteRow, error: updateErr } = await supabase
+      .from('notes')
+      .update(updatedPayload)
+      .eq('id', noteId)
+      .select('*, uploader_profile:uploaded_by(*)')
+      .single();
+
+    if (updateErr) {
+      console.warn('Failed to update note parent record:', updateErr);
+      return { success: false, error: updateErr.message };
+    }
+
+    const allCombinedFiles = [...retainedExistingFiles, ...newlyUploadedFiles];
+    const finalNote: Note = {
+      ...(updatedNoteRow || currentNoteData),
+      ...updatedPayload,
+      files: allCombinedFiles
+    };
+
+    return { success: true, note: finalNote };
+  } catch (err: any) {
+    console.error('updateNoteInSupabase error:', err);
+    return { success: false, error: err?.message || 'Failed to update note.' };
+  }
+}
+
+/**
  * Delete a Note and its associated storage files and database records across all buckets.
  */
 export async function deleteNoteFromSupabase(noteId: string): Promise<boolean> {
