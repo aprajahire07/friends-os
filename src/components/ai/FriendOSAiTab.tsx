@@ -220,8 +220,13 @@ export const FriendOSAiTab: React.FC = () => {
 
   // Send Message
   const handleSendMessage = async (customPrompt?: string) => {
-    const promptToSend = (customPrompt || inputPrompt).trim();
+    let promptToSend = (customPrompt || inputPrompt).trim();
     if ((!promptToSend && attachments.length === 0) || isGenerating) return;
+
+    if (!promptToSend && attachments.length > 0) {
+      const fileNames = attachments.map((a) => a.name).join(', ');
+      promptToSend = `Please analyze, explain, and review the attached file (${fileNames}) in detail.`;
+    }
 
     let targetConvId = activeConversationId;
     if (!targetConvId) {
@@ -949,7 +954,7 @@ export const FriendOSAiTab: React.FC = () => {
             ref={fileInputRef}
             type="file"
             multiple
-            accept="image/*,.pdf,.doc,.docx,.txt"
+            accept="image/*,application/pdf,text/*,.pdf,.doc,.docx,.txt,.c,.cpp,.h,.java,.py,.js,.jsx,.ts,.tsx,.json,.md,.html,.css,.sql,.zip"
             onChange={handleFileChange}
             className="hidden"
           />
@@ -960,7 +965,7 @@ export const FriendOSAiTab: React.FC = () => {
             disabled={isGenerating || isProcessingFile}
             onClick={() => fileInputRef.current?.click()}
             className="p-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center flex-shrink-0"
-            title="Attach images, PDFs, or DOC/DOCX documents"
+            title="Attach images, PDFs, TXT, or code documents"
           >
             {isProcessingFile ? (
               <RefreshCw className="w-5 h-5 text-indigo-400 animate-spin" />

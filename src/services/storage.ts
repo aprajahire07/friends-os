@@ -44,7 +44,20 @@ const ALLOWED_DOCUMENT_TYPES = [
   'application/vnd.ms-powerpoint',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   'text/plain',
-  'application/zip'
+  'text/markdown',
+  'text/x-c',
+  'text/x-csrc',
+  'text/x-c++',
+  'text/x-cpp',
+  'text/x-python',
+  'text/x-java-source',
+  'text/javascript',
+  'text/html',
+  'text/css',
+  'application/json',
+  'application/zip',
+  'application/x-zip-compressed',
+  'application/octet-stream'
 ];
 
 /**
@@ -61,6 +74,13 @@ export const BUCKET_CANDIDATE_CHAINS: Record<StoragePurpose, string[]> = {
   documents: ['documents', 'notes', 'study-notes', 'friend-os-files', 'memories', 'public', 'default']
 };
 
+const CODE_AND_DOC_EXTENSIONS = [
+  'pdf', 'doc', 'docx', 'ppt', 'pptx', 'txt', 'text', 'rtf',
+  'c', 'cpp', 'cc', 'cxx', 'h', 'hpp', 'java', 'py', 'js', 'jsx', 'ts', 'tsx',
+  'html', 'css', 'json', 'md', 'markdown', 'csv', 'sql', 'log', 'xml', 'yaml', 'yml',
+  'zip', 'rar', '7z', 'tar', 'gz'
+];
+
 /**
  * Validates a file against allowed MIME types, extensions, and size limits
  */
@@ -72,8 +92,8 @@ export function validateUploadFile(
     return { valid: false, error: 'No file provided.', fileType: 'unknown' };
   }
 
-  const mimeType = file.type.toLowerCase();
-  const fileName = file.name.toLowerCase();
+  const mimeType = (file.type || '').toLowerCase();
+  const fileName = (file.name || '').toLowerCase();
   const ext = fileName.split('.').pop() || '';
 
   let fileType: 'image' | 'video' | 'document' | 'unknown' = 'unknown';
@@ -82,7 +102,16 @@ export function validateUploadFile(
     fileType = 'image';
   } else if (ALLOWED_VIDEO_TYPES.includes(mimeType) || ['mp4', 'webm', 'mov', 'mkv'].includes(ext)) {
     fileType = 'video';
-  } else if (ALLOWED_DOCUMENT_TYPES.includes(mimeType) || ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'txt', 'zip'].includes(ext)) {
+  } else if (
+    ALLOWED_DOCUMENT_TYPES.includes(mimeType) || 
+    CODE_AND_DOC_EXTENSIONS.includes(ext) ||
+    mimeType.startsWith('text/') ||
+    mimeType.includes('document') ||
+    mimeType.includes('pdf') ||
+    mimeType.includes('word') ||
+    mimeType.includes('sheet') ||
+    mimeType.includes('presentation')
+  ) {
     fileType = 'document';
   }
 

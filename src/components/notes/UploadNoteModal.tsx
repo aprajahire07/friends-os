@@ -55,32 +55,37 @@ export const UploadNoteModal: React.FC<UploadNoteModalProps> = ({ isOpen, onClos
       }
 
       const lowerName = f.name.toLowerCase();
+      const ext = lowerName.split('.').pop() || '';
       const mime = f.type.toLowerCase();
 
       let type: 'image' | 'pdf' | 'document' | null = null;
       if (mime === 'application/pdf' || lowerName.endsWith('.pdf')) {
         type = 'pdf';
       } else if (
-        mime === 'text/plain' || 
-        lowerName.endsWith('.txt') ||
-        lowerName.endsWith('.doc') ||
-        lowerName.endsWith('.docx') ||
-        mime.includes('word') ||
-        mime.includes('text')
-      ) {
-        type = 'document';
-      } else if (
         mime.startsWith('image/') ||
-        lowerName.endsWith('.jpg') ||
-        lowerName.endsWith('.jpeg') ||
-        lowerName.endsWith('.png') ||
-        lowerName.endsWith('.webp')
+        ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif', 'svg'].includes(ext)
       ) {
         type = 'image';
+      } else if (
+        mime === 'text/plain' || 
+        mime.startsWith('text/') ||
+        mime.includes('word') ||
+        mime.includes('document') ||
+        mime.includes('pdf') ||
+        mime.includes('sheet') ||
+        mime.includes('presentation') ||
+        [
+          'txt', 'text', 'doc', 'docx', 'ppt', 'pptx', 'rtf',
+          'c', 'cpp', 'cc', 'cxx', 'h', 'hpp', 'java', 'py', 'js', 'jsx', 'ts', 'tsx',
+          'html', 'css', 'json', 'md', 'markdown', 'csv', 'sql', 'log', 'xml', 'yaml', 'yml',
+          'zip', 'rar', '7z'
+        ].includes(ext)
+      ) {
+        type = 'document';
       }
 
       if (!type) {
-        setErrorMsg(`"${f.name}" is not a supported file type. Only JPG, PNG, WEBP, PDF, and TXT/DOC documents are allowed.`);
+        setErrorMsg(`"${f.name}" is not a supported file type. Please choose an image, PDF, code file, or document.`);
         continue;
       }
 
@@ -237,7 +242,7 @@ export const UploadNoteModal: React.FC<UploadNoteModalProps> = ({ isOpen, onClos
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                Files (Images, PDFs & TXT) <span className="text-rose-400">*</span>
+                Files (Images, PDFs, TXT & Code) <span className="text-rose-400">*</span>
               </label>
               <span className="text-[10px] text-slate-400">
                 {selectedFiles.length} file{selectedFiles.length !== 1 ? 's' : ''} selected
@@ -249,7 +254,7 @@ export const UploadNoteModal: React.FC<UploadNoteModalProps> = ({ isOpen, onClos
               ref={fileInputRef}
               onChange={handleFileSelect}
               multiple
-              accept="image/jpeg,image/png,image/webp,application/pdf,text/plain,.txt,.doc,.docx"
+              accept="image/*,application/pdf,text/*,.txt,.c,.cpp,.h,.java,.py,.js,.jsx,.ts,.tsx,.json,.md,.html,.css,.sql,.doc,.docx,.ppt,.pptx,.zip"
               className="hidden"
             />
 
@@ -264,10 +269,10 @@ export const UploadNoteModal: React.FC<UploadNoteModalProps> = ({ isOpen, onClos
               </div>
               <div className="text-center">
                 <span className="text-xs font-bold text-indigo-300 group-hover:text-indigo-200">
-                  Click to select multiple photos, PDFs, or .txt documents
+                  Click to select photos, PDFs, .txt or code documents
                 </span>
                 <p className="text-[10px] text-slate-400 mt-0.5">
-                  Supported: JPG, PNG, WEBP, PDF, TXT, DOC (Up to 25MB each)
+                  Supported: JPG, PNG, PDF, TXT, C/C++, Java, Python, DOC (Up to 25MB each)
                 </p>
               </div>
             </button>
