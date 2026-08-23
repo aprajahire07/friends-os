@@ -130,14 +130,25 @@ export const ViewNoteModal: React.FC<ViewNoteModalProps> = ({ note, onClose, onD
               <h3 className="text-sm sm:text-base font-bold text-white truncate flex items-center gap-2">
                 <span>{note.caption}</span>
                 {note.is_password_protected && (
-                  <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-bold border border-amber-500/30 flex items-center gap-1 shrink-0">
-                    <Lock className="w-3 h-3" /> Protected
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border flex items-center gap-1 shrink-0 ${
+                    isUnlocked 
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' 
+                      : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                  }`}>
+                    <Lock className="w-3 h-3" /> {isUnlocked ? 'Unlocked' : 'Password Protected'}
                   </span>
                 )}
-                {isAdmin && note.is_password_protected && (
-                  <span className="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 text-[10px] font-bold border border-indigo-500/30 flex items-center gap-1 shrink-0">
-                    <ShieldCheck className="w-3 h-3 text-indigo-400" /> Master Access
-                  </span>
+                {isAdmin && note.is_password_protected && !isUnlocked && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      appStore.unlockNoteAsAdmin(note.id);
+                      showToast('Master Access', 'Note unlocked via administrative clearance.', 'info');
+                    }}
+                    className="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 text-[10px] font-bold border border-indigo-500/30 hover:bg-indigo-500/40 transition-colors flex items-center gap-1 shrink-0"
+                  >
+                    <ShieldCheck className="w-3 h-3 text-indigo-400" /> Master Unlock
+                  </button>
                 )}
               </h3>
               <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">

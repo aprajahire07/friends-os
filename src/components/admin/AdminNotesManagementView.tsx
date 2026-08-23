@@ -78,8 +78,8 @@ export const AdminNotesManagementView: React.FC = () => {
   };
 
   const handleOpenMasterAccess = (note: Note) => {
-    // Automatically unlocks for Admin in current session
-    appStore.verifyAndUnlockNote(note.id, '');
+    // Automatically unlocks for Admin in current session via master clearance
+    appStore.unlockNoteAsAdmin(note.id);
     setSelectedNote(note);
   };
 

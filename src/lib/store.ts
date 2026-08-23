@@ -61,7 +61,14 @@ import {
 } from '../services/plans';
 import { fetchMemoriesFromSupabase, addMemoryToSupabase, updateMemoryInSupabase, deleteMemoryFromSupabase } from '../services/memories';
 import { extractYouTubeVideoId, extractAllYouTubeLinks, formatYouTubePayload } from './youtube';
-import { fetchNotesFromSupabase, createNoteInSupabase, updateNoteInSupabase, deleteNoteFromSupabase, verifyNotePasswordInSupabase } from '../services/notes';
+import { 
+  fetchNotesFromSupabase, 
+  createNoteInSupabase, 
+  updateNoteInSupabase, 
+  deleteNoteFromSupabase, 
+  verifyNotePasswordInSupabase,
+  hashNotePassword 
+} from '../services/notes';
 import { fetchBorrowedItemsFromSupabase, addBorrowedItemToSupabase, markItemReturnedInSupabase } from '../services/borrowed';
 import { fetchDateAttendanceFromSupabase, markDateAttendanceInSupabase, fetchClassReportsFromSupabase, reportClassCancellationInSupabase } from '../services/attendance';
 import { fetchSnapsFromSupabase, sendSnapToSupabase, openSnapInSupabase, destroySnapInSupabase } from '../services/snaps';
@@ -445,6 +452,20 @@ export const appStore = {
             }
             return n;
           });
+
+          // Invalidate local unlock state if a note was locked or password changed remotely
+          hydrated.forEach(rNote => {
+            const existing = this.notes.find(n => n.id === rNote.id);
+            if (rNote.is_password_protected) {
+              if (existing && (!existing.is_password_protected || (existing.password_hash && rNote.password_hash && existing.password_hash !== rNote.password_hash))) {
+                this.unlockedNoteIds.delete(rNote.id);
+              }
+            } else {
+              // Unprotected notes are open
+              this.unlockedNoteIds.delete(rNote.id);
+            }
+          });
+
           this.notes = hydrated;
           saveState('notes', this.notes);
           notifyListeners();
@@ -858,6 +879,8 @@ export const appStore = {
     } else {
       this.profiles = [...this.profiles, user];
     }
+    // Clean unlocked note cache so switching users does not leak unlocked notes
+    this.unlockedNoteIds = new Set<string>();
     saveState('currentUser', this.currentUser);
     saveState('profiles', this.profiles);
 
@@ -887,6 +910,7 @@ export const appStore = {
     this.snaps = [];
     this.notifications = [];
     this.messageReads = {};
+    this.unlockedNoteIds = new Set<string>();
     this.sessionUnlockedMemories = false;
     localStorage.removeItem('friend_os_currentUser');
     localStorage.removeItem('friend_os_group');
@@ -2255,15 +2279,20 @@ export const appStore = {
       return true;
     }
 
-    // Admin has Master Access: opens directly without knowing user password
-    if (isUserAdmin(this.currentUser)) {
+    const cleanPassword = passwordAttempt ? passwordAttempt.trim() : '';
+    if (!cleanPassword) return false;
+
+    const inputHash = await hashNotePassword(cleanPassword);
+
+    // 1. Verify against cached note password_hash if present
+    if (target.password_hash && target.password_hash === inputHash) {
       this.unlockedNoteIds.add(noteId);
       notifyListeners();
       return true;
     }
 
-    // Regular users: verify hash against stored hash in Supabase
-    const isMatch = await verifyNotePasswordInSupabase(noteId, passwordAttempt);
+    // 2. Verify against Supabase database row directly
+    const isMatch = await verifyNotePasswordInSupabase(noteId, cleanPassword);
     if (isMatch) {
       this.unlockedNoteIds.add(noteId);
       notifyListeners();
@@ -2273,11 +2302,17 @@ export const appStore = {
     return false;
   },
 
+  unlockNoteAsAdmin(noteId: string): boolean {
+    if (!isUserAdmin(this.currentUser)) return false;
+    this.unlockedNoteIds.add(noteId);
+    notifyListeners();
+    return true;
+  },
+
   isNoteUnlocked(noteId: string): boolean {
     const target = this.notes.find(n => n.id === noteId);
     if (!target) return false;
     if (!target.is_password_protected) return true;
-    if (isUserAdmin(this.currentUser)) return true;
     return this.unlockedNoteIds.has(noteId);
   },
 
