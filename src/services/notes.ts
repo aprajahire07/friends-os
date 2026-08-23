@@ -234,7 +234,7 @@ export async function createNoteInSupabase(params: {
 }
 
 /**
- * Verify password for a protected note via RPC or secure hash check.
+ * Verify password for a protected note via secure hash check.
  */
 export async function verifyNotePasswordInSupabase(noteId: string, passwordAttempt: string): Promise<boolean> {
   if (!isSupabaseConfigured || !supabase) return false;
@@ -242,27 +242,17 @@ export async function verifyNotePasswordInSupabase(noteId: string, passwordAttem
   try {
     const inputHash = await hashNotePassword(passwordAttempt.trim());
 
-    // 1. Try server-side RPC if available
-    const { data: rpcResult, error: rpcErr } = await supabase.rpc('verify_note_password', {
-      p_note_id: noteId,
-      p_password_hash: inputHash
-    });
-
-    if (!rpcErr && typeof rpcResult === 'boolean') {
-      return rpcResult;
-    }
-
-    // 2. Fallback: query note row directly to compare hash securely
+    // Query note row directly to compare hash securely
     const { data, error } = await supabase
       .from('notes')
       .select('password_hash, is_password_protected')
-      .eq('id', noteId)
-      .maybeSingle();
+      .eq('id', noteId);
 
-    if (error || !data) return false;
-    if (!data.is_password_protected) return true;
+    if (error || !data || data.length === 0) return false;
+    const noteRow = data[0];
+    if (!noteRow.is_password_protected) return true;
 
-    return data.password_hash === inputHash;
+    return noteRow.password_hash === inputHash;
   } catch (err) {
     console.warn('Error in verifyNotePasswordInSupabase:', err);
     return false;
@@ -309,15 +299,16 @@ export async function updateNoteInSupabase(params: {
 
   try {
     // 1. Fetch current note to check existing password hash and current files
-    const { data: currentNoteData, error: currentNoteErr } = await supabase
+    const { data: noteList, error: currentNoteErr } = await supabase
       .from('notes')
       .select('*, note_files(*)')
-      .eq('id', noteId)
-      .single();
+      .eq('id', noteId);
 
-    if (currentNoteErr || !currentNoteData) {
+    if (currentNoteErr || !noteList || noteList.length === 0) {
       return { success: false, error: 'Note not found in database.' };
     }
+
+    const currentNoteData = noteList[0];
 
     let passwordHash: string | null = null;
     if (isPasswordProtected) {
@@ -380,7 +371,7 @@ export async function updateNoteInSupabase(params: {
       });
     }
 
-    // 4. Update parent note record
+    // 4. Update parent note record safely without .single() coercion errors
     const updatedPayload = {
       caption,
       is_password_protected: isPasswordProtected,
@@ -388,12 +379,10 @@ export async function updateNoteInSupabase(params: {
       updated_at: new Date().toISOString()
     };
 
-    const { data: updatedNoteRow, error: updateErr } = await supabase
+    const { error: updateErr } = await supabase
       .from('notes')
       .update(updatedPayload)
-      .eq('id', noteId)
-      .select('*, uploader_profile:uploaded_by(*)')
-      .single();
+      .eq('id', noteId);
 
     if (updateErr) {
       console.warn('Failed to update note parent record:', updateErr);
@@ -402,7 +391,7 @@ export async function updateNoteInSupabase(params: {
 
     const allCombinedFiles = [...retainedExistingFiles, ...newlyUploadedFiles];
     const finalNote: Note = {
-      ...(updatedNoteRow || currentNoteData),
+      ...currentNoteData,
       ...updatedPayload,
       files: allCombinedFiles
     };
