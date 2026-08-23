@@ -31,6 +31,7 @@ import { EditMemoryModal } from './EditMemoryModal';
 import { MemoryLockedView } from './MemoryLockedView';
 import { MemorySettingsModal } from './MemorySettingsModal';
 import { extractAllYouTubeLinks, getYouTubeEmbedUrl, getYouTubeThumbnailUrl, YouTubeLinkItem } from '../../lib/youtube';
+import { ZoomableImage } from '../ui/ZoomableImage';
 
 export const MemoryGallery: React.FC = () => {
   const { showToast } = useToast();
@@ -770,12 +771,14 @@ export const MemoryGallery: React.FC = () => {
                 }
 
                 return (
-                  <img
-                    key={currentMedia}
-                    src={getSyncMediaUrl('memories', currentMedia)}
-                    alt={`${selectedMemory.title} photo ${activeMediaIndex + 1}`}
-                    className="w-full max-h-[55vh] object-contain transition-all duration-200"
-                  />
+                  <div className="w-full h-full flex items-center justify-center max-h-[55vh]">
+                    <ZoomableImage
+                      key={currentMedia}
+                      src={getSyncMediaUrl('memories', currentMedia)}
+                      alt={`${selectedMemory.title} photo ${activeMediaIndex + 1}`}
+                      className="w-full max-h-[55vh] object-contain"
+                    />
+                  </div>
                 );
               })()}
 

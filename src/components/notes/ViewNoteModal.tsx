@@ -23,6 +23,7 @@ import { appStore, useAppStore } from '../../lib/store';
 import { isUserAdmin } from '../../services/appSettings';
 import { getAuthorizedNoteFileUrl } from '../../services/notes';
 import { useToast } from '../ui/Toast';
+import { ZoomableImage } from '../ui/ZoomableImage';
 
 interface ViewNoteModalProps {
   note: Note | null;
@@ -281,11 +282,13 @@ export const ViewNoteModal: React.FC<ViewNoteModalProps> = ({ note, onClose, onD
                       )}
                     </div>
                   ) : currentFileUrl ? (
-                    <img
-                      src={currentFileUrl}
-                      alt={currentFile.file_name}
-                      className="max-w-full max-h-[54vh] object-contain rounded-lg"
-                    />
+                    <div className="w-full h-full flex items-center justify-center max-h-[54vh]">
+                      <ZoomableImage
+                        src={currentFileUrl}
+                        alt={currentFile.file_name}
+                        className="max-w-full max-h-[54vh] object-contain rounded-lg"
+                      />
+                    </div>
                   ) : (
                     <div className="flex items-center justify-center p-8">
                       <Loader2 className="w-6 h-6 text-indigo-400 animate-spin" />
