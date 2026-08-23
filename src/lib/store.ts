@@ -2138,7 +2138,7 @@ export const appStore = {
   // ----------------------------------------------------
   async addNote(params: {
     caption: string;
-    files: { file: File; type: 'image' | 'pdf' }[];
+    files: { file: File; type: 'image' | 'pdf' | 'document' | string }[];
     isPasswordProtected: boolean;
     password?: string;
   }): Promise<{ success: boolean; note?: Note; error?: string }> {

@@ -230,15 +230,15 @@ export const ViewNoteModal: React.FC<ViewNoteModalProps> = ({ note, onClose, onD
                     <span className="text-xs">Loading secure files...</span>
                   </div>
                 ) : currentFile ? (
-                  currentFile.file_type === 'pdf' ? (
+                  currentFile.file_type !== 'image' ? (
                     <div className="p-8 text-center space-y-4 max-w-md">
-                      <div className="w-16 h-16 rounded-2xl bg-rose-950/80 border border-rose-800 text-rose-400 flex items-center justify-center mx-auto shadow-xl">
+                      <div className="w-16 h-16 rounded-2xl bg-indigo-950/80 border border-indigo-800 text-indigo-400 flex items-center justify-center mx-auto shadow-xl">
                         <FileText className="w-8 h-8" />
                       </div>
                       <div>
                         <h4 className="text-sm font-bold text-white break-all">{currentFile.file_name}</h4>
                         <p className="text-xs text-slate-400 mt-1">
-                          PDF Document • {(currentFile.file_size ? (currentFile.file_size / (1024 * 1024)).toFixed(2) + ' MB' : 'Standard')}
+                          {currentFile.file_name.endsWith('.txt') ? 'Text Document (.txt)' : currentFile.file_type === 'pdf' ? 'PDF Document' : 'Document'} • {(currentFile.file_size ? (currentFile.file_size / (1024 * 1024)).toFixed(2) + ' MB' : 'Standard')}
                         </p>
                       </div>
 
@@ -251,7 +251,7 @@ export const ViewNoteModal: React.FC<ViewNoteModalProps> = ({ note, onClose, onD
                             className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/30 flex items-center gap-2 transition-all active:scale-95"
                           >
                             <ExternalLink className="w-4 h-4" />
-                            <span>Open PDF in New Tab</span>
+                            <span>Open File in New Tab</span>
                           </a>
                         </div>
                       )}

@@ -22,7 +22,7 @@ interface UploadNoteModalProps {
 interface SelectedFileItem {
   id: string;
   file: File;
-  type: 'image' | 'pdf';
+  type: 'image' | 'pdf' | 'document';
   previewUrl?: string;
 }
 
@@ -57,9 +57,18 @@ export const UploadNoteModal: React.FC<UploadNoteModalProps> = ({ isOpen, onClos
       const lowerName = f.name.toLowerCase();
       const mime = f.type.toLowerCase();
 
-      let type: 'image' | 'pdf' | null = null;
+      let type: 'image' | 'pdf' | 'document' | null = null;
       if (mime === 'application/pdf' || lowerName.endsWith('.pdf')) {
         type = 'pdf';
+      } else if (
+        mime === 'text/plain' || 
+        lowerName.endsWith('.txt') ||
+        lowerName.endsWith('.doc') ||
+        lowerName.endsWith('.docx') ||
+        mime.includes('word') ||
+        mime.includes('text')
+      ) {
+        type = 'document';
       } else if (
         mime.startsWith('image/') ||
         lowerName.endsWith('.jpg') ||
@@ -71,7 +80,7 @@ export const UploadNoteModal: React.FC<UploadNoteModalProps> = ({ isOpen, onClos
       }
 
       if (!type) {
-        setErrorMsg(`"${f.name}" is not a supported file type. Only JPG, PNG, WEBP, and PDF are allowed.`);
+        setErrorMsg(`"${f.name}" is not a supported file type. Only JPG, PNG, WEBP, PDF, and TXT/DOC documents are allowed.`);
         continue;
       }
 
@@ -228,7 +237,7 @@ export const UploadNoteModal: React.FC<UploadNoteModalProps> = ({ isOpen, onClos
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                Files (Images & PDFs) <span className="text-rose-400">*</span>
+                Files (Images, PDFs & TXT) <span className="text-rose-400">*</span>
               </label>
               <span className="text-[10px] text-slate-400">
                 {selectedFiles.length} file{selectedFiles.length !== 1 ? 's' : ''} selected
@@ -240,7 +249,7 @@ export const UploadNoteModal: React.FC<UploadNoteModalProps> = ({ isOpen, onClos
               ref={fileInputRef}
               onChange={handleFileSelect}
               multiple
-              accept="image/jpeg,image/png,image/webp,application/pdf"
+              accept="image/jpeg,image/png,image/webp,application/pdf,text/plain,.txt,.doc,.docx"
               className="hidden"
             />
 
@@ -255,10 +264,10 @@ export const UploadNoteModal: React.FC<UploadNoteModalProps> = ({ isOpen, onClos
               </div>
               <div className="text-center">
                 <span className="text-xs font-bold text-indigo-300 group-hover:text-indigo-200">
-                  Click to select multiple photos or PDF documents
+                  Click to select multiple photos, PDFs, or .txt documents
                 </span>
                 <p className="text-[10px] text-slate-400 mt-0.5">
-                  Supported: JPG, PNG, WEBP, PDF (Up to 25MB each)
+                  Supported: JPG, PNG, WEBP, PDF, TXT, DOC (Up to 25MB each)
                 </p>
               </div>
             </button>

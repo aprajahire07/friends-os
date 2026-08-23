@@ -70,7 +70,11 @@ function mapNotes(data: any[]): Note[] {
           note_id: f.note_id || n.id,
           storage_path: f.storage_path,
           file_name: f.file_name || `file_${idx + 1}`,
-          file_type: (f.file_type === 'pdf' || f.storage_path?.toLowerCase().endsWith('.pdf')) ? 'pdf' : 'image',
+          file_type: (f.file_type === 'pdf' || f.storage_path?.toLowerCase().endsWith('.pdf')) 
+            ? 'pdf' 
+            : (f.file_type === 'document' || f.storage_path?.toLowerCase().endsWith('.txt') || f.file_name?.toLowerCase().endsWith('.txt'))
+            ? 'document'
+            : (f.file_type || 'image'),
           file_size: f.file_size,
           display_order: f.display_order ?? (idx + 1),
           created_at: f.created_at || n.created_at
@@ -98,7 +102,7 @@ function mapNotes(data: any[]): Note[] {
  */
 export async function createNoteInSupabase(params: {
   caption: string;
-  files: { file: File; type: 'image' | 'pdf' }[];
+  files: { file: File; type: 'image' | 'pdf' | 'document' | string }[];
   isPasswordProtected: boolean;
   password?: string;
   uploaderId: string;
@@ -110,7 +114,7 @@ export async function createNoteInSupabase(params: {
   const { caption, files, isPasswordProtected, password, uploaderId } = params;
 
   if (!files || files.length === 0) {
-    return { success: false, error: 'At least one file (image or PDF) is required.' };
+    return { success: false, error: 'At least one file is required.' };
   }
 
   if (isPasswordProtected && (!password || password.trim().length === 0)) {
@@ -131,7 +135,7 @@ export async function createNoteInSupabase(params: {
       note_id: string;
       storage_path: string;
       file_name: string;
-      file_type: 'image' | 'pdf';
+      file_type: 'image' | 'pdf' | 'document' | string;
       file_size: number;
       display_order: number;
       created_at: string;

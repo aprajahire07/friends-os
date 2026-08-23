@@ -321,7 +321,7 @@ export interface NoteFile {
   note_id: string;
   storage_path: string;
   file_name: string;
-  file_type: 'image' | 'pdf';
+  file_type: 'image' | 'pdf' | 'document' | string;
   file_size?: number;
   display_order: number;
   created_at: string;
