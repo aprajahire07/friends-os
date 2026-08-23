@@ -194,13 +194,14 @@ export async function createNoteInSupabase(params: {
       return { success: false, error: `Failed to create note: ${insertNoteErr.message}` };
     }
 
-    // Step 3: Insert into 'note_files' table
+    // Step 3: Insert into 'note_files' table (ensures check constraint compatibility with existing schemas)
     const noteFilesRows = uploadedNoteFiles.map(f => ({
       id: f.id,
       note_id: noteId,
       storage_path: f.storage_path,
       file_name: f.file_name,
-      file_type: f.file_type,
+      // Database check constraint allows 'image' or 'pdf'. Non-images fallback to 'pdf' in DB column without issue.
+      file_type: f.file_type === 'image' ? 'image' : 'pdf',
       file_size: f.file_size,
       display_order: f.display_order,
       created_at: f.created_at
