@@ -63,6 +63,8 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
     .filter(l => l && l.borrower_id === user?.id && l.status === 'pending')
     .reduce((acc, l) => acc + (l.amount || 0), 0);
 
+  const isFriendsPrivate = store.isFriendsPrivate();
+
   // Top pending loan
   const topLoan = (store.loans || []).find(
     l => l && (l.lender_id === user?.id || l.borrower_id === user?.id) && l.status === 'pending'
@@ -72,11 +74,11 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
   if (topLoan) {
     if (topLoan.lender_id === user?.id) {
       const bProfile = (store.profiles || []).find(p => p && p.id === topLoan.borrower_id);
-      const bName = bProfile?.full_name?.split(' ')[0] || bProfile?.username || 'Friend';
+      const bName = isFriendsPrivate ? 'Friend' : (bProfile?.full_name?.split(' ')[0] || bProfile?.username || 'Friend');
       loanSummaryText = `${bName} owes you ₹${topLoan.amount || 0}`;
     } else {
       const lProfile = (store.profiles || []).find(p => p && p.id === topLoan.lender_id);
-      const lName = lProfile?.full_name?.split(' ')[0] || lProfile?.username || 'Friend';
+      const lName = isFriendsPrivate ? 'Friend' : (lProfile?.full_name?.split(' ')[0] || lProfile?.username || 'Friend');
       loanSummaryText = `You owe ${lName} ₹${topLoan.amount || 0}`;
     }
   }
@@ -94,7 +96,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
     const d = parseInt(parts[2], 10);
     if (isNaN(m) || isNaN(d)) return null;
 
-    const firstName = p.full_name?.split(' ')[0] || p.username || 'Friend';
+    const firstName = isFriendsPrivate ? 'Friend' : (p.full_name?.split(' ')[0] || p.username || 'Friend');
 
     if (m === todayMonth && d === todayDay) {
       return `${firstName}'s birthday today! 🎂`;

@@ -10,9 +10,16 @@ interface MessageItemProps {
   currentUser: Profile;
   onReply: (message: ChatMessage) => void;
   onOpenProfile?: (profile: Profile) => void;
+  isChatPrivate?: boolean;
 }
 
-export const MessageItem: React.FC<MessageItemProps> = ({ message, currentUser, onReply, onOpenProfile }) => {
+export const MessageItem: React.FC<MessageItemProps> = ({ 
+  message, 
+  currentUser, 
+  onReply, 
+  onOpenProfile,
+  isChatPrivate = false
+}) => {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showFullImage, setShowFullImage] = useState(false);
   const isSelf = message.sender_id === currentUser.id;
@@ -73,7 +80,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, currentUser, 
           {message.reply_to_message && (
             <div className="mb-1 p-2 rounded-lg bg-slate-950/80 border-l-2 border-indigo-500 text-[11px] text-slate-400">
               <span className="font-bold text-indigo-300">@{message.reply_to_message.sender_name}: </span>
-              <span>{message.reply_to_message.content}</span>
+              <span>{isChatPrivate ? '••••••••••••' : message.reply_to_message.content}</span>
             </div>
           )}
 
@@ -88,7 +95,12 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, currentUser, 
             {/* Media Attachment */}
             {resolvedMediaUrl && (
               <div className="mb-2">
-                {isDocument ? (
+                {isChatPrivate ? (
+                  <div className="px-3 py-2 rounded-xl bg-slate-950/60 border border-slate-800 flex items-center gap-2 text-slate-400">
+                    <span className="text-xs">🔒</span>
+                    <span className="text-[11px] font-mono">Attachment Hidden</span>
+                  </div>
+                ) : isDocument ? (
                   <a
                     href={resolvedMediaUrl}
                     target="_blank"
@@ -113,7 +125,13 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, currentUser, 
               </div>
             )}
 
-            {message.content && <p className="whitespace-pre-wrap break-words">{message.content}</p>}
+            {isChatPrivate ? (
+              <p className="font-mono text-slate-400/80 tracking-widest text-[11px] select-none py-0.5">
+                ••••••••••••••••••••
+              </p>
+            ) : (
+              message.content && <p className="whitespace-pre-wrap break-words">{message.content}</p>
+            )}
           </div>
 
           {/* Action Hover Controls */}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, MapPin, Send, MessageSquare, GraduationCap, Cake, Users, Plus } from 'lucide-react';
+import { Search, MapPin, Send, MessageSquare, GraduationCap, Cake, Users, Plus, Eye, EyeOff } from 'lucide-react';
 import { appStore, useAppStore } from '../../lib/store';
 import { Profile } from '../../types';
 import { StatusPicker } from './StatusPicker';
@@ -36,6 +36,8 @@ export const FriendsList: React.FC<FriendsListProps> = ({
     setLocationInput(appStore.currentUser.current_location || 'GH Raisoni — Block A, Room A-203');
   }, [appStore.currentUser.id, appStore.currentUser.current_location]);
 
+  const isFriendsPrivate = appStore.isFriendsPrivate();
+
   const friends = appStore.profiles;
   const filtered = friends.filter(
     f =>
@@ -64,10 +66,28 @@ export const FriendsList: React.FC<FriendsListProps> = ({
           </p>
         </div>
 
-        {/* Live Status Control */}
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="text-xs text-slate-400 font-medium">Your status:</span>
-          <StatusPicker />
+        {/* Live Status Control & Privacy Reveal Button */}
+        <div className="flex items-center gap-2 shrink-0 flex-wrap">
+          {appStore.userSettings?.hide_sensitive_information && (
+            <button
+              type="button"
+              onClick={() => appStore.togglePrivacyRevealFriends()}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors border ${
+                isFriendsPrivate
+                  ? 'bg-amber-950/60 border-amber-800 text-amber-300 hover:bg-amber-900/60'
+                  : 'bg-indigo-950/60 border-indigo-800 text-indigo-300 hover:bg-indigo-900/60'
+              }`}
+              title={isFriendsPrivate ? 'Temporarily reveal friend details' : 'Re-hide friend details'}
+            >
+              {isFriendsPrivate ? <Eye className="w-3.5 h-3.5 text-amber-400" /> : <EyeOff className="w-3.5 h-3.5 text-indigo-400" />}
+              <span>{isFriendsPrivate ? 'Show Friends' : 'Hide Friends'}</span>
+            </button>
+          )}
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-400 font-medium">Your status:</span>
+            <StatusPicker />
+          </div>
         </div>
       </div>
 
@@ -125,8 +145,8 @@ export const FriendsList: React.FC<FriendsListProps> = ({
                 <Avatar
                   profile={f}
                   src={f.avatar_url}
-                  name={f.full_name}
-                  username={f.username}
+                  name={isFriendsPrivate && !isSelf ? 'Friend' : f.full_name}
+                  username={isFriendsPrivate && !isSelf ? 'user' : f.username}
                   size="lg"
                   showStatus={true}
                   statusEmoji={f.status_emoji || '🟢'}
@@ -135,7 +155,9 @@ export const FriendsList: React.FC<FriendsListProps> = ({
 
                 <div className="truncate">
                   <div className="flex items-center gap-2">
-                    <h3 className="font-bold text-sm text-white truncate">{f.full_name}</h3>
+                    <h3 className="font-bold text-sm text-white truncate">
+                      {isFriendsPrivate && !isSelf ? '••••••••••••' : f.full_name}
+                    </h3>
                     {isSelf && (
                       <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-indigo-950 text-indigo-400 border border-indigo-800">
                         YOU
@@ -145,16 +167,22 @@ export const FriendsList: React.FC<FriendsListProps> = ({
                   
                   {/* Status & Custom Text */}
                   <div className="text-[11px] text-slate-400 mt-0.5 flex flex-wrap items-center gap-1.5 truncate">
-                    <span className="text-emerald-400 font-semibold">{f.status_preset || '🟢 Available'}</span>
-                    {f.status_text && f.status_text !== f.status_preset && (
-                      <span className="text-slate-300 italic truncate max-w-[130px]">
-                        "{f.status_text}"
-                      </span>
-                    )}
-                    {f.current_location && (
-                      <span className="text-slate-400 truncate max-w-[140px]">
-                        • 📍 {f.current_location.split('—')[0]}
-                      </span>
+                    {isFriendsPrivate && !isSelf ? (
+                      <span className="font-mono text-slate-500 text-[10px]">••••••••••••</span>
+                    ) : (
+                      <>
+                        <span className="text-emerald-400 font-semibold">{f.status_preset || '🟢 Available'}</span>
+                        {f.status_text && f.status_text !== f.status_preset && (
+                          <span className="text-slate-300 italic truncate max-w-[130px]">
+                            "{f.status_text}"
+                          </span>
+                        )}
+                        {f.current_location && (
+                          <span className="text-slate-400 truncate max-w-[140px]">
+                            • 📍 {f.current_location.split('—')[0]}
+                          </span>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>

@@ -15,7 +15,9 @@ import {
   ArrowLeft, 
   Lock,
   Smile,
-  CheckCircle2
+  CheckCircle2,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { appStore, useAppStore } from '../../lib/store';
 import { ChatMessage, Profile } from '../../types';
@@ -77,6 +79,8 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
     if (!selectedFriendId) return null;
     return store.profiles.find(p => p.id === selectedFriendId) || null;
   }, [store.profiles, selectedFriendId]);
+
+  const isChatPrivate = store.isChatPrivate();
 
   // Group Messages
   const groupMessages = useMemo(() => {
@@ -347,8 +351,24 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
           )}
         </div>
 
-        {/* Right Side: Search & Clear Chat */}
+        {/* Right Side: Privacy Reveal, Search & Clear Chat */}
         <div className="flex items-center gap-2 shrink-0">
+          {store.userSettings?.hide_sensitive_information && (
+            <button
+              type="button"
+              onClick={() => appStore.togglePrivacyRevealChats()}
+              className={`p-1.5 sm:px-2.5 sm:py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors border ${
+                isChatPrivate
+                  ? 'bg-amber-950/60 border-amber-800 text-amber-300 hover:bg-amber-900/60'
+                  : 'bg-indigo-950/60 border-indigo-800 text-indigo-300 hover:bg-indigo-900/60'
+              }`}
+              title={isChatPrivate ? 'Temporarily reveal chat messages' : 'Re-hide chat messages'}
+            >
+              {isChatPrivate ? <Eye className="w-3.5 h-3.5 text-amber-400" /> : <EyeOff className="w-3.5 h-3.5 text-indigo-400" />}
+              <span className="hidden sm:inline">{isChatPrivate ? 'Show Messages' : 'Hide Messages'}</span>
+            </button>
+          )}
+
           {(activeMode === 'group' || (activeMode === 'private' && selectedFriend)) && (
             <>
               {/* Search Toggle / Box */}
@@ -413,6 +433,7 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
                     currentUser={currentUser}
                     onReply={setReplyingTo}
                     onOpenProfile={onOpenProfile}
+                    isChatPrivate={isChatPrivate}
                   />
                 ))
               )}
@@ -494,7 +515,7 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
                           </div>
                           <div className="flex items-center justify-between gap-1">
                             <p className="text-[11px] text-slate-400 truncate">
-                              {lastMsg ? lastMsg.content : `@${friend.username}`}
+                              {lastMsg ? (isChatPrivate ? '••••••••••••' : lastMsg.content) : `@${friend.username}`}
                             </p>
                             {unread > 0 && (
                               <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-cyan-500 text-slate-950 shrink-0">
@@ -538,6 +559,7 @@ export const GroupChat: React.FC<GroupChatProps> = ({ onOpenProfile, initialFrie
                         currentUser={currentUser}
                         onReply={setReplyingTo}
                         onOpenProfile={onOpenProfile}
+                        isChatPrivate={isChatPrivate}
                       />
                     ))
                   )}

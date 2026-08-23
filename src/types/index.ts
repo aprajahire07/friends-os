@@ -393,7 +393,8 @@ export type NavigationTab =
   | 'notifications'
   | 'profile'
   | 'me'
-  | 'admin';
+  | 'admin'
+  | 'settings';
 
 export type ExamType = 'CAE1' | 'CAE2' | 'END_SEM';
 

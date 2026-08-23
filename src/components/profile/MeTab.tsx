@@ -19,7 +19,8 @@ import {
   Smartphone,
   Download,
   BarChart3,
-  Calculator
+  Calculator,
+  Settings
 } from 'lucide-react';
 import { appStore, useAppStore } from '../../lib/store';
 import { Profile } from '../../types';
@@ -346,6 +347,20 @@ export const MeTab: React.FC<MeTabProps> = ({
             <div>
               <h4 className="text-xs font-bold text-white">📚 Notes</h4>
               <p className="text-[10px] text-slate-400">PDFs & Docs</p>
+            </div>
+          </button>
+
+          <button
+            id="me-tab-settings-btn"
+            onClick={() => onSelectTab('settings')}
+            className="p-4 rounded-2xl bg-gradient-to-br from-indigo-950/40 via-slate-900 to-slate-900 border border-slate-800 hover:border-indigo-500/50 flex flex-col items-center gap-2 text-center transition-all group shadow-md"
+          >
+            <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+              <Settings className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-white">⚙️ Settings</h4>
+              <p className="text-[10px] text-slate-400">Privacy & Security</p>
             </div>
           </button>
 

@@ -86,6 +86,12 @@ import {
   updateProfileOverrideInSupabase
 } from '../services/appSettings';
 import {
+  fetchUserSettingsFromSupabase,
+  saveUserSettingsToSupabase,
+  UserSecuritySettings,
+  DEFAULT_USER_SECURITY_SETTINGS
+} from '../services/userSettings';
+import {
   adminSetUserBanStatus,
   adminClearCompletedMoneyHistory as apiAdminClearCompletedMoneyHistory,
   adminInitiateUserPasswordReset as apiAdminInitiateUserPasswordReset,
@@ -172,6 +178,11 @@ export const appStore = {
   memoriesPasscodeHash: loadInitialState<string>('memoriesPasscodeHash', DEFAULT_PASSCODE_HASH),
   sessionUnlockedMemories: false,
 
+  // Privacy & Security (Per-User Supabase Settings)
+  userSettings: null as UserSecuritySettings | null,
+  privacyRevealedChats: false,
+  privacyRevealedFriends: false,
+
   subscribe(listener: Listener) {
     listeners.add(listener);
     return () => listeners.delete(listener);
@@ -198,7 +209,8 @@ export const appStore = {
           remoteNotifications,
           remoteSettings,
           remoteGroupData,
-          remoteMessageReads
+          remoteMessageReads,
+          remoteUserSettings
         ] = await withTimeout(
           Promise.all([
             fetchProfilesFromSupabase(),
@@ -215,11 +227,16 @@ export const appStore = {
             fetchNotificationsFromSupabase(this.currentUser.id),
             fetchMemoryLockSettingsFromSupabase(),
             fetchUserGroup(this.currentUser.id),
-            fetchMessageReadsFromSupabase(this.currentUser.id)
+            fetchMessageReadsFromSupabase(this.currentUser.id),
+            fetchUserSettingsFromSupabase(this.currentUser.id)
           ]),
           8000,
-          [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null]
+          [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null]
         );
+
+        if (remoteUserSettings) {
+          this.userSettings = remoteUserSettings;
+        }
 
         const localReads = loadInitialState<Record<string, string>>(`messageReads_${this.currentUser.id}`, {});
         const mergedReads: Record<string, string> = { ...localReads };
@@ -881,6 +898,8 @@ export const appStore = {
     }
     // Clean unlocked note cache so switching users does not leak unlocked notes
     this.unlockedNoteIds = new Set<string>();
+    this.privacyRevealedChats = false;
+    this.privacyRevealedFriends = false;
     saveState('currentUser', this.currentUser);
     saveState('profiles', this.profiles);
 
@@ -889,6 +908,7 @@ export const appStore = {
     notifyListeners();
 
     this.syncMessageReads();
+    this.syncUserSettings();
   },
 
   logout() {
@@ -912,10 +932,63 @@ export const appStore = {
     this.messageReads = {};
     this.unlockedNoteIds = new Set<string>();
     this.sessionUnlockedMemories = false;
+    this.userSettings = null;
+    this.privacyRevealedChats = false;
+    this.privacyRevealedFriends = false;
     localStorage.removeItem('friend_os_currentUser');
     localStorage.removeItem('friend_os_group');
     saveState('currentUser', null);
     notifyListeners();
+  },
+
+  // Privacy & Security Methods
+  isChatPrivate(): boolean {
+    return Boolean(this.userSettings?.hide_sensitive_information && !this.privacyRevealedChats);
+  },
+
+  isFriendsPrivate(): boolean {
+    return Boolean(this.userSettings?.hide_sensitive_information && !this.privacyRevealedFriends);
+  },
+
+  togglePrivacyRevealChats(forceState?: boolean) {
+    this.privacyRevealedChats = forceState !== undefined ? forceState : !this.privacyRevealedChats;
+    notifyListeners();
+  },
+
+  togglePrivacyRevealFriends(forceState?: boolean) {
+    this.privacyRevealedFriends = forceState !== undefined ? forceState : !this.privacyRevealedFriends;
+    notifyListeners();
+  },
+
+  async syncUserSettings() {
+    if (!this.currentUser) return;
+    try {
+      const settings = await fetchUserSettingsFromSupabase(this.currentUser.id);
+      this.userSettings = settings;
+      notifyListeners();
+      return settings;
+    } catch (e) {
+      console.warn('Error syncing user settings:', e);
+    }
+  },
+
+  async updateUserSettings(partial: Partial<UserSecuritySettings>) {
+    if (!this.currentUser) return { success: false, error: 'User not logged in' };
+    const current = this.userSettings || DEFAULT_USER_SECURITY_SETTINGS(this.currentUser.id);
+    const updated: UserSecuritySettings = {
+      ...current,
+      ...partial,
+      user_id: this.currentUser.id
+    };
+    this.userSettings = updated;
+    notifyListeners();
+
+    const res = await saveUserSettingsToSupabase(this.currentUser.id, partial);
+    if (res.success && res.data) {
+      this.userSettings = res.data;
+      notifyListeners();
+    }
+    return res;
   },
 
   // Update Status

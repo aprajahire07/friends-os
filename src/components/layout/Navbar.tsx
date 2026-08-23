@@ -180,11 +180,22 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <button
                     onClick={() => {
                       setShowUserDropdown(false);
+                      setActiveTab('settings');
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-300 hover:bg-slate-800 hover:text-white transition-colors text-left"
+                  >
+                    <Settings className="w-4 h-4 text-indigo-400" />
+                    <span>⚙️ Settings & Privacy</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setShowUserDropdown(false);
                       onOpenOnboarding();
                     }}
                     className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-300 hover:bg-slate-800 hover:text-white transition-colors text-left"
                   >
-                    <Settings className="w-4 h-4 text-slate-400" />
+                    <User className="w-4 h-4 text-slate-400" />
                     <span>Edit Profile Info</span>
                   </button>
                 </div>

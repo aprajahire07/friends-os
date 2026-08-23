@@ -28,6 +28,8 @@ import { OnboardingModal } from './components/auth/OnboardingModal';
 import { AuthModal } from './components/auth/AuthModal';
 import { BannedAccountView } from './components/auth/BannedAccountView';
 import { AdminDashboard } from './components/admin/AdminDashboard';
+import { SettingsView } from './components/settings/SettingsView';
+import { AutoLogoutManager } from './components/security/AutoLogoutManager';
 import { ToastProvider, useToast } from './components/ui/Toast';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { PWAStatusBar } from './components/pwa/PWAStatusBar';
@@ -233,6 +235,9 @@ export function AppContent() {
   // 5. Authenticated Application
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
+      {/* Auto Logout and Inactivity Session Guard */}
+      <AutoLogoutManager />
+
       {/* PWA Offline / Update & Install Notification Bar */}
       <PWAStatusBar onOpenInstallModal={() => setShowPWAInstallModal(true)} />
 
@@ -342,6 +347,10 @@ export function AppContent() {
 
             {activeTab === 'admin' && isAdminUser && (
               <AdminDashboard onBackToHome={() => setActiveTab('home')} />
+            )}
+
+            {activeTab === 'settings' && (
+              <SettingsView onBack={() => setActiveTab('me')} />
             )}
           </ErrorBoundary>
         </main>
