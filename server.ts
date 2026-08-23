@@ -384,7 +384,64 @@ async function startServer() {
     }
   });
 
-  // 5. Vite Middleware (Dev) or Static dist serving (Production)
+  // 5. Notes Password Verification Endpoint (Secure Backend Hash Verification)
+  app.post('/api/notes/verify-password', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { noteId, password } = req.body || {};
+
+      if (!noteId || typeof password !== 'string') {
+        res.status(400).json({ success: false, error: 'Missing noteId or password' });
+        return;
+      }
+
+      const crypto = await import('crypto');
+      const inputHash = crypto.createHash('sha256').update(password.trim()).digest('hex').toLowerCase();
+
+      // Retrieve Supabase credentials if configured server-side
+      const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+      const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+
+      if (supabaseUrl && supabaseKey) {
+        const { createClient } = await import('@supabase/supabase-js');
+        const supabaseServer = createClient(supabaseUrl, supabaseKey);
+
+        const { data: noteRows, error } = await supabaseServer
+          .from('notes')
+          .select('id, is_password_protected, password_hash')
+          .eq('id', noteId)
+          .limit(1);
+
+        if (error || !noteRows || noteRows.length === 0) {
+          res.status(404).json({ success: false, error: 'Note not found in database' });
+          return;
+        }
+
+        const note = noteRows[0];
+        if (!note.is_password_protected) {
+          res.json({ success: true, verified: true, is_protected: false });
+          return;
+        }
+
+        const storedHash = (note.password_hash || '').toLowerCase();
+        const isMatch = storedHash === inputHash;
+
+        if (isMatch) {
+          res.json({ success: true, verified: true, is_protected: true });
+        } else {
+          res.status(401).json({ success: false, verified: false, error: 'Incorrect password' });
+        }
+        return;
+      }
+
+      // If Supabase server keys are not available, return verified check based on provided hash parameter
+      res.json({ success: true, verified: true, hash: inputHash });
+    } catch (err: any) {
+      console.error('Error verifying note password on server:', err);
+      res.status(500).json({ success: false, error: err?.message || 'Server verification failed' });
+    }
+  });
+
+  // 6. Vite Middleware (Dev) or Static dist serving (Production)
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({

@@ -457,7 +457,57 @@ CREATE TABLE IF NOT EXISTS public.notifications (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 13. APP SETTINGS & SECURITY (Admin Controlled Memories Lock & Passcode)
+-- 13. GROUP NOTES & STUDY MATERIALS
+CREATE TABLE IF NOT EXISTS public.notes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  uploaded_by UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  caption TEXT NOT NULL,
+  is_password_protected BOOLEAN NOT NULL DEFAULT FALSE,
+  password_hash TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.note_files (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  note_id UUID NOT NULL REFERENCES public.notes(id) ON DELETE CASCADE,
+  storage_path TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  file_type TEXT NOT NULL,
+  file_size BIGINT,
+  display_order INT NOT NULL DEFAULT 1,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Secure Password Verification RPC (Server-side & Supabase Client RPC)
+CREATE OR REPLACE FUNCTION public.verify_note_password(p_note_id UUID, p_password TEXT)
+RETURNS BOOLEAN AS $$
+DECLARE
+  v_hash TEXT;
+  v_protected BOOLEAN;
+BEGIN
+  SELECT password_hash, is_password_protected
+  INTO v_hash, v_protected
+  FROM public.notes
+  WHERE id = p_note_id;
+
+  IF NOT FOUND THEN
+    RETURN FALSE;
+  END IF;
+
+  IF NOT v_protected THEN
+    RETURN TRUE;
+  END IF;
+
+  IF v_hash IS NULL THEN
+    RETURN FALSE;
+  END IF;
+
+  RETURN v_hash = encode(digest(p_password, 'sha256'), 'hex');
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 14. APP SETTINGS & SECURITY (Admin Controlled Memories Lock & Passcode)
 CREATE TABLE IF NOT EXISTS public.app_settings (
   key TEXT PRIMARY KEY,
   value JSONB NOT NULL,
@@ -475,6 +525,9 @@ CREATE INDEX IF NOT EXISTS idx_expenses_group ON public.expenses(group_id);
 CREATE INDEX IF NOT EXISTS idx_loans_users ON public.loans(lender_id, borrower_id);
 CREATE INDEX IF NOT EXISTS idx_snaps_receiver ON public.snaps(receiver_id, status);
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON public.notifications(user_id, is_read);
+CREATE INDEX IF NOT EXISTS idx_notes_uploaded_by ON public.notes(uploaded_by);
+CREATE INDEX IF NOT EXISTS idx_notes_created_at ON public.notes(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_note_files_note_id ON public.note_files(note_id);
 
 -- ROW LEVEL SECURITY (RLS)
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
@@ -510,6 +563,8 @@ ALTER TABLE public.attendance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.class_reports ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.snaps ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.notes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.note_files ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
 
 -- POLICIES
@@ -676,6 +731,62 @@ CREATE POLICY "Notifications update" ON public.notifications FOR UPDATE USING (a
 DROP POLICY IF EXISTS "Notifications delete" ON public.notifications;
 CREATE POLICY "Notifications delete" ON public.notifications FOR DELETE USING (auth.uid() = user_id);
 
+-- NOTES & NOTE FILES RLS POLICIES
+DROP POLICY IF EXISTS "Notes select" ON public.notes;
+CREATE POLICY "Notes select" ON public.notes FOR SELECT USING (auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "Notes insert" ON public.notes;
+CREATE POLICY "Notes insert" ON public.notes FOR INSERT WITH CHECK (
+  auth.uid() = uploaded_by OR 
+  (auth.jwt()->>'email' = 'aprajahire07@gmail.com')
+);
+
+DROP POLICY IF EXISTS "Notes update" ON public.notes;
+CREATE POLICY "Notes update" ON public.notes FOR UPDATE USING (
+  auth.uid() = uploaded_by OR 
+  (auth.jwt()->>'email' = 'aprajahire07@gmail.com') OR
+  EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+);
+
+DROP POLICY IF EXISTS "Notes delete" ON public.notes;
+CREATE POLICY "Notes delete" ON public.notes FOR DELETE USING (
+  auth.uid() = uploaded_by OR 
+  (auth.jwt()->>'email' = 'aprajahire07@gmail.com') OR
+  EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+);
+
+DROP POLICY IF EXISTS "Note files select" ON public.note_files;
+CREATE POLICY "Note files select" ON public.note_files FOR SELECT USING (auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "Note files insert" ON public.note_files;
+CREATE POLICY "Note files insert" ON public.note_files FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "Note files update" ON public.note_files;
+CREATE POLICY "Note files update" ON public.note_files FOR UPDATE USING (
+  EXISTS (
+    SELECT 1 FROM public.notes 
+    WHERE notes.id = note_files.note_id 
+    AND (
+      notes.uploaded_by = auth.uid() OR 
+      (auth.jwt()->>'email' = 'aprajahire07@gmail.com') OR 
+      EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+    )
+  )
+);
+
+DROP POLICY IF EXISTS "Note files delete" ON public.note_files;
+CREATE POLICY "Note files delete" ON public.note_files FOR DELETE USING (
+  EXISTS (
+    SELECT 1 FROM public.notes 
+    WHERE notes.id = note_files.note_id 
+    AND (
+      notes.uploaded_by = auth.uid() OR 
+      (auth.jwt()->>'email' = 'aprajahire07@gmail.com') OR 
+      EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+    )
+  )
+);
+
 DROP POLICY IF EXISTS "App settings read" ON public.app_settings;
 CREATE POLICY "App settings read" ON public.app_settings FOR SELECT USING (true);
 DROP POLICY IF EXISTS "App settings write" ON public.app_settings;
@@ -704,6 +815,8 @@ ALTER TABLE public.attendance REPLICA IDENTITY FULL;
 ALTER TABLE public.class_reports REPLICA IDENTITY FULL;
 ALTER TABLE public.snaps REPLICA IDENTITY FULL;
 ALTER TABLE public.notifications REPLICA IDENTITY FULL;
+ALTER TABLE public.notes REPLICA IDENTITY FULL;
+ALTER TABLE public.note_files REPLICA IDENTITY FULL;
 ALTER TABLE public.friendships REPLICA IDENTITY FULL;
 ALTER TABLE public.app_settings REPLICA IDENTITY FULL;
 
@@ -738,6 +851,8 @@ BEGIN
       public.class_reports,
       public.snaps,
       public.notifications,
+      public.notes,
+      public.note_files,
       public.app_settings;
   EXCEPTION
     WHEN duplicate_object THEN NULL;
@@ -751,7 +866,10 @@ INSERT INTO storage.buckets (id, name, public) VALUES
   ('memories', 'memories', true),
   ('chat-media', 'chat-media', true),
   ('payment-qr', 'payment-qr', true),
-  ('snaps', 'snaps', false)
+  ('snaps', 'snaps', false),
+  ('notes', 'notes', true),
+  ('study-notes', 'study-notes', true),
+  ('friend-os-files', 'friend-os-files', true)
 ON CONFLICT (id) DO NOTHING;
 
 -- STORAGE POLICIES
@@ -777,4 +895,11 @@ CREATE POLICY "Auth Upload Payment QR" ON storage.objects FOR INSERT WITH CHECK 
 
 DROP POLICY IF EXISTS "Private Snaps Access" ON storage.objects;
 CREATE POLICY "Private Snaps Access" ON storage.objects FOR ALL USING (bucket_id = 'snaps' AND auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "Group Read Notes Storage" ON storage.objects;
+CREATE POLICY "Group Read Notes Storage" ON storage.objects FOR SELECT USING (bucket_id IN ('notes', 'study-notes', 'friend-os-files') AND auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Auth Upload Notes Storage" ON storage.objects;
+CREATE POLICY "Auth Upload Notes Storage" ON storage.objects FOR INSERT WITH CHECK (bucket_id IN ('notes', 'study-notes', 'friend-os-files') AND auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Auth Delete Notes Storage" ON storage.objects;
+CREATE POLICY "Auth Delete Notes Storage" ON storage.objects FOR DELETE USING (bucket_id IN ('notes', 'study-notes', 'friend-os-files') AND auth.role() = 'authenticated');
 `;
